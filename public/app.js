@@ -15,6 +15,9 @@ const btnSaveConfirm  = document.getElementById('btn-save-confirm');
 const btnSaveCancel   = document.getElementById('btn-save-cancel');
 const btnAddParam     = document.getElementById('btn-add-param');
 const btnViewClose    = document.getElementById('btn-view-close');
+const btnImportChrome = document.getElementById('btn-import-chrome');
+const chromeImportFile = document.getElementById('chrome-import-file');
+const chromeImportFilename = document.getElementById('chrome-import-filename');
 
 const startUrlInput   = document.getElementById('start-url');
 const actionLog       = document.getElementById('action-log');
@@ -150,8 +153,7 @@ function buildParamRows() {
   paramList.innerHTML = '';
   paramCounter = 0;
 
-  // Deduplicate fills by selector: first occurrence keeps its position,
-  // but value is updated to the last recorded value for that selector.
+  // Deduplicate fills by selector (keep first occurrence, last value)
   const lastFillValue = new Map();
   for (const a of currentActions) {
     if (a.type === 'fill') lastFillValue.set(a.selector, a.value);
@@ -167,7 +169,68 @@ function buildParamRows() {
   }
 
   if (fills.length === 0) return;
-  fills.forEach(fill => addFillParamRow(fill));
+
+  // Group fills that share the same value — these are likely the same logical field
+  const valueGroups = new Map(); // value → [fill, fill, ...]
+  for (const fill of fills) {
+    const key = fill.value;
+    if (!valueGroups.has(key)) valueGroups.set(key, []);
+    valueGroups.get(key).push(fill);
+  }
+
+  for (const [value, group] of valueGroups) {
+    if (group.length > 1) {
+      // Multiple selectors share the same value → group row
+      addGroupedParamRow(value, group);
+    } else {
+      addFillParamRow(group[0]);
+    }
+  }
+}
+
+/**
+ * Render a group of fills that all share the same value.
+ * The user can assign one parameter name for the entire group.
+ */
+function addGroupedParamRow(value, fills) {
+  const id = ++paramCounter;
+  const row = document.createElement('div');
+  row.className = 'fill-param-row fill-param-group';
+  // store all selectors as JSON so collectParams can read them
+  row.dataset.selectors = JSON.stringify(fills.map(f => f.selector));
+  row.dataset.value = value;
+  row.dataset.sensitive = fills.some(f => f.sensitive) ? '1' : '';
+
+  const displayValue = fills.some(f => f.sensitive) ? '••••••' : value;
+  const suggestedName = sanitizeParamName(fills[0].selector);
+  const selectorList = fills.map(f => { const s = escAttr(f.selector); return `<code title="${s}">${s}</code>`; }).join(', ');
+
+  row.innerHTML = `
+    <div class="fill-param-info fill-param-info--group">
+      <span class="fill-group-badge">⚡ ${fills.length} fields, same value</span>
+      <span class="fill-value">${escAttr(displayValue)}</span>
+    </div>
+    <div class="fill-selectors-list">${selectorList}</div>
+    <div class="fill-param-controls">
+      <label class="toggle-label">
+        <input type="checkbox" class="param-toggle"${fills.some(f => f.sensitive) ? ' checked' : ''}>
+        Convert to parameter
+      </label>
+      <input type="text" class="param-name"
+             placeholder="paramName (e.g. ${escAttr(suggestedName)})"
+             value="${escAttr(suggestedName)}"
+             style="display:${fills.some(f => f.sensitive) ? '' : 'none'}" />
+    </div>
+  `;
+
+  const toggle = row.querySelector('.param-toggle');
+  const nameInput = row.querySelector('.param-name');
+  toggle.addEventListener('change', () => {
+    nameInput.style.display = toggle.checked ? '' : 'none';
+    if (toggle.checked) nameInput.focus();
+  });
+
+  paramList.appendChild(row);
 }
 
 function addFillParamRow(fill) {
@@ -234,8 +297,17 @@ function escAttr(s) {
 function collectParams() {
   const params = [];
 
-  // Fill-param rows (auto-detected): only include if toggle is checked
-  paramList.querySelectorAll('.fill-param-row').forEach(row => {
+  // Grouped fill rows (multiple selectors share one value → one parameter)
+  paramList.querySelectorAll('.fill-param-group').forEach(row => {
+    const toggle = row.querySelector('.param-toggle');
+    if (!toggle || !toggle.checked) return;
+    const name = row.querySelector('.param-name').value.trim();
+    const defaultValue = row.dataset.value;
+    if (name) params.push({ name, defaultValue });
+  });
+
+  // Individual fill-param rows (auto-detected, unique value)
+  paramList.querySelectorAll('.fill-param-row:not(.fill-param-group)').forEach(row => {
     const toggle = row.querySelector('.param-toggle');
     if (!toggle || !toggle.checked) return;
     const name = row.querySelector('.param-name').value.trim();
@@ -390,6 +462,70 @@ btnSaveConfirm.addEventListener('click', () => {
 btnSaveCancel.addEventListener('click', () => closeModal(modalSave));
 btnViewClose.addEventListener('click', () => closeModal(modalView));
 btnAddParam.addEventListener('click', () => addParamRow());
+
+// ── Chrome Recorder import ────────────────────────────────────────────────────
+
+chromeImportFile.addEventListener('change', () => {
+  const file = chromeImportFile.files[0];
+  if (file) {
+    chromeImportFilename.textContent = file.name;
+    btnImportChrome.disabled = false;
+  } else {
+    chromeImportFilename.textContent = 'No file selected';
+    btnImportChrome.disabled = true;
+  }
+});
+
+btnImportChrome.addEventListener('click', async () => {
+  const file = chromeImportFile.files[0];
+  if (!file) return;
+
+  let json;
+  try {
+    const text = await file.text();
+    json = JSON.parse(text);
+  } catch {
+    alert('Could not parse JSON file. Make sure you exported it from Chrome DevTools Recorder.');
+    return;
+  }
+
+  appendLog(serverLog, `📥 Importing: ${file.name}`, 'log-info');
+
+  let data;
+  try {
+    const res = await fetch('/api/import-chrome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(json),
+    });
+    data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Import failed');
+  } catch (err) {
+    appendLog(serverLog, `⚠ Import error: ${err.message}`, 'log-error');
+    alert('Import failed: ' + err.message);
+    return;
+  }
+
+  // Load imported actions and open the save modal for review
+  currentActions = data.actions;
+  actionLog.innerHTML = '';
+  currentActions.forEach(a => appendLog(actionLog, actionLabel(a), actionClass(a.type)));
+  actionCount.textContent = currentActions.length;
+  btnWipe.disabled = currentActions.length === 0;
+
+  appendLog(serverLog, `✓ Imported ${currentActions.length} action(s) from Chrome recording`, 'log-success');
+
+  // Open save modal pre-filled with the recording title
+  modalActionCount.textContent = currentActions.length + ' action(s) (imported)';
+  scriptNameInput.value = data.title || '';
+  buildParamRows();
+  openModal(modalSave);
+
+  // Reset file input
+  chromeImportFile.value = '';
+  chromeImportFilename.textContent = 'No file selected';
+  btnImportChrome.disabled = true;
+});
 
 modalOverlay.addEventListener('click', () => {
   closeModal(modalSave);

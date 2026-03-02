@@ -46,6 +46,21 @@
 
       <h3>Server Log</h3>
       <div id="server-log" class="log-box log-box--sm" aria-live="polite" aria-label="Server log"></div>
+
+      <div class="divider"></div>
+
+      <h2>📥 Import Chrome Recording</h2>
+      <p class="hint">Export a recording from Chrome DevTools Recorder as JSON, then import it here to analyze, parameterize and save as a Playwright script.</p>
+      <div class="btn-row">
+        <label class="btn btn-secondary" for="chrome-import-file" title="Select a Chrome Recorder .json file">
+          📂 Choose JSON file
+        </label>
+        <input id="chrome-import-file" type="file" accept=".json,application/json" style="display:none" />
+        <span id="chrome-import-filename" class="import-filename">No file selected</span>
+      </div>
+      <div class="btn-row">
+        <button id="btn-import-chrome" class="btn btn-primary" disabled>📥 Import &amp; Review</button>
+      </div>
     </section>
 
     <!-- ===== RIGHT — Scripts Panel ===== -->

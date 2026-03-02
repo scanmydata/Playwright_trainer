@@ -335,12 +335,37 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
   padding: 8px 10px;
   margin-bottom: 6px;
 }
+.fill-param-row.fill-param-group {
+  border-color: var(--accent);
+}
 .fill-param-info {
   display: flex;
   gap: 10px;
   align-items: baseline;
   margin-bottom: 5px;
   flex-wrap: wrap;
+}
+.fill-param-info--group {
+  margin-bottom: 4px;
+}
+.fill-group-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.fill-selectors-list {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+  line-height: 1.6;
+}
+.fill-selectors-list code {
+  background: var(--code-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  margin-right: 4px;
 }
 .fill-selector {
   font-family: var(--mono);
@@ -383,6 +408,17 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .fill-param-controls .param-name {
   flex: 1;
   min-width: 140px;
+}
+
+/* ---- Import section ---- */
+.import-filename {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  align-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 /* ---- Script source ---- */

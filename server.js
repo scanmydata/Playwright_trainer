@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const { actionsToScript } = require('./recorder/actions-to-script');
+const { chromeRecorderToActions } = require('./recorder/chrome-to-playwright');
 
 // ---------------------------------------------------------------------------
 // App setup
@@ -18,7 +19,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // Rate limiting for API routes (protects file system access)
 const apiLimiter = rateLimit({
@@ -115,6 +116,20 @@ app.post('/api/run', async (req, res) => {
       io.emit('runLog', { level: 'error', msg: `[run] Error: ${err.message}` });
     }
   })();
+});
+
+/** Import Chrome DevTools Recorder JSON → return converted actions for preview */
+app.post('/api/import-chrome', (req, res) => {
+  try {
+    const recording = req.body;
+    const actions = chromeRecorderToActions(recording);
+    const title = (recording.title || 'imported_recording')
+      .replace(/[^a-z0-9_\-]/gi, '_')
+      .substring(0, MAX_SCRIPT_NAME_LENGTH);
+    res.json({ ok: true, actions, title });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -256,13 +271,21 @@ io.on('connection', (socket) => {
 
       state.browser = await chromium.launch({
         headless,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--no-first-run',
+          '--no-default-browser-check',
+        ],
         slowMo: 50,
       });
 
       state.context = await state.browser.newContext({
         acceptDownloads: true,
         viewport: { width: 1920, height: 1080 },
+        ignoreHTTPSErrors: true,
+        bypassCSP: true,
       });
 
       // Expose binding so injected script can push actions to Node
