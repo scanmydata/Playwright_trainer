@@ -1,0 +1,46 @@
+{
+  "name": "Playwright Trainer",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true
+    }
+  },
+
+  "onCreateCommand": "npm install && npx playwright install chromium --with-deps",
+
+  "postStartCommand": "bash .devcontainer/startup.sh",
+
+  "forwardPorts": [3000, 6080],
+
+  "portsAttributes": {
+    "3000": {
+      "label": "Playwright Trainer UI",
+      "onAutoForward": "openBrowser",
+      "protocol": "http"
+    },
+    "6080": {
+      "label": "Browser View (noVNC)",
+      "onAutoForward": "notify",
+      "protocol": "http"
+    }
+  },
+
+  "remoteEnv": {
+    "DISPLAY": ":99"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-playwright.playwright",
+        "ms-vscode.js-debug"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}
