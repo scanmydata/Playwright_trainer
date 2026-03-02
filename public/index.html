@@ -35,6 +35,9 @@
         <button id="btn-wipe" class="btn btn-secondary" disabled title="Clear unsaved recording data">
           🗑 Wipe Data
         </button>
+        <button id="btn-open-vnc" class="btn btn-secondary" title="Open the browser view in a new tab">
+          🖥️ View VNC
+        </button>
       </div>
 
       <div class="divider"></div>
@@ -122,10 +125,10 @@
 
       <!-- Parameter configuration -->
       <div id="param-config-area">
-        <h3>Input Values &amp; Parameters</h3>
-        <p class="hint">Check any value you want to turn into a script parameter (variable). Unchecked values will be hardcoded in the script.</p>
+        <h3>📋 Review User Inputs</h3>
+        <p class="hint">For each detected input, choose whether the value should be <strong>hardcoded</strong> in the script or turned into a <strong>named variable</strong> (parameter) you can pass at runtime.</p>
         <div id="param-list"></div>
-        <button type="button" class="btn btn-secondary btn-sm" id="btn-add-param">+ Add Parameter manually</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-add-param">+ Add variable manually</button>
       </div>
 
       <div class="modal-actions">

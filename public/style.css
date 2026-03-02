@@ -391,19 +391,35 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
   gap: 8px;
   flex-wrap: wrap;
 }
-.toggle-label {
-  display: flex;
+
+/* ---- Hardcoded / Variable mode toggle ---- */
+.mode-toggle {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.8rem;
-  color: var(--text);
-  font-weight: 400;
   cursor: pointer;
+  user-select: none;
   white-space: nowrap;
 }
-.toggle-label input[type="checkbox"] {
+.mode-toggle input[type="checkbox"] {
   width: auto;
   cursor: pointer;
+  accent-color: var(--accent);
+}
+.mode-state {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-hard {
+  background: rgba(224, 82, 82, 0.15);
+  color: #ff9999;
+}
+.mode-var {
+  background: rgba(124, 106, 247, 0.2);
+  color: var(--accent);
 }
 .fill-param-controls .param-name {
   flex: 1;

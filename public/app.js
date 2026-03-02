@@ -16,6 +16,7 @@ const btnSaveCancel   = document.getElementById('btn-save-cancel');
 const btnAddParam     = document.getElementById('btn-add-param');
 const btnViewClose    = document.getElementById('btn-view-close');
 const btnImportChrome = document.getElementById('btn-import-chrome');
+const btnOpenVnc      = document.getElementById('btn-open-vnc');
 const chromeImportFile = document.getElementById('chrome-import-file');
 const chromeImportFilename = document.getElementById('chrome-import-filename');
 
@@ -40,6 +41,34 @@ const scriptsList     = document.getElementById('scripts-list');
 const scriptSourceCode = document.getElementById('script-source-code');
 
 const MAX_PARAM_NAME_LENGTH = 30;
+
+// ── VNC URL ───────────────────────────────────────────────────────────────────
+/**
+ * Compute the noVNC viewer URL for the current environment.
+ * - Local:       http://localhost:6080/vnc.html?...
+ * - Codespaces:  the server returns the exact URL via /api/vnc-url (env vars),
+ *                otherwise we derive it by replacing the port in the subdomain.
+ */
+let vncUrl = _deriveVncUrl(); // synchronous fallback, overridden by server below
+
+function _deriveVncUrl() {
+  const { protocol, hostname } = window.location;
+  const params = 'autoconnect=1&resize=scale';
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `${protocol}//${hostname}:6080/vnc.html?${params}`;
+  }
+  // Forwarded-port hostname: {name}-PORT.{domain} → replace PORT with 6080
+  const dot = hostname.indexOf('.');
+  if (dot === -1) return `${protocol}//${hostname}:6080/vnc.html?${params}`;
+  const sub = hostname.slice(0, dot).replace(/-\d+$/, '-6080');
+  return `${protocol}//${sub}${hostname.slice(dot)}/vnc.html?${params}`;
+}
+
+// Ask the server (it has access to Codespaces env vars for an exact URL)
+fetch('/api/vnc-url')
+  .then(response => response.json())
+  .then(data => { if (data && data.url) vncUrl = data.url; })
+  .catch(() => { /* keep derived URL */ });
 
 
 let currentActions = [];
@@ -204,6 +233,7 @@ function addGroupedParamRow(value, fills) {
   const displayValue = fills.some(f => f.sensitive) ? '••••••' : value;
   const suggestedName = sanitizeParamName(fills[0].selector);
   const selectorList = fills.map(f => { const s = escAttr(f.selector); return `<code title="${s}">${s}</code>`; }).join(', ');
+  const isVariable = fills.some(f => f.sensitive);
 
   row.innerHTML = `
     <div class="fill-param-info fill-param-info--group">
@@ -212,24 +242,19 @@ function addGroupedParamRow(value, fills) {
     </div>
     <div class="fill-selectors-list">${selectorList}</div>
     <div class="fill-param-controls">
-      <label class="toggle-label">
-        <input type="checkbox" class="param-toggle"${fills.some(f => f.sensitive) ? ' checked' : ''}>
-        Convert to parameter
+      <label class="mode-toggle" title="Click to switch between hardcoded and variable">
+        <input type="checkbox" class="param-toggle"${isVariable ? ' checked' : ''}>
+        <span class="mode-state mode-hard">🔒 Hardcoded</span>
+        <span class="mode-state mode-var">📝 Variable →</span>
       </label>
       <input type="text" class="param-name"
-             placeholder="paramName (e.g. ${escAttr(suggestedName)})"
+             placeholder="variable name (e.g. ${escAttr(suggestedName)})"
              value="${escAttr(suggestedName)}"
-             style="display:${fills.some(f => f.sensitive) ? '' : 'none'}" />
+             style="display:${isVariable ? '' : 'none'}" />
     </div>
   `;
 
-  const toggle = row.querySelector('.param-toggle');
-  const nameInput = row.querySelector('.param-name');
-  toggle.addEventListener('change', () => {
-    nameInput.style.display = toggle.checked ? '' : 'none';
-    if (toggle.checked) nameInput.focus();
-  });
-
+  _wireToggle(row, isVariable);
   paramList.appendChild(row);
 }
 
@@ -243,6 +268,7 @@ function addFillParamRow(fill) {
 
   const displayValue = fill.sensitive ? '••••••' : fill.value;
   const suggestedName = sanitizeParamName(fill.selector);
+  const isVariable = fill.sensitive;
 
   row.innerHTML = `
     <div class="fill-param-info">
@@ -250,25 +276,39 @@ function addFillParamRow(fill) {
       <span class="fill-value">${escAttr(displayValue)}</span>
     </div>
     <div class="fill-param-controls">
-      <label class="toggle-label">
-        <input type="checkbox" class="param-toggle"${fill.sensitive ? ' checked' : ''}>
-        Convert to parameter
+      <label class="mode-toggle" title="Click to switch between hardcoded and variable">
+        <input type="checkbox" class="param-toggle"${isVariable ? ' checked' : ''}>
+        <span class="mode-state mode-hard">🔒 Hardcoded</span>
+        <span class="mode-state mode-var">📝 Variable →</span>
       </label>
       <input type="text" class="param-name"
-             placeholder="paramName (e.g. ${escAttr(suggestedName)})"
+             placeholder="variable name (e.g. ${escAttr(suggestedName)})"
              value="${escAttr(suggestedName)}"
-             style="display:${fill.sensitive ? '' : 'none'}" />
+             style="display:${isVariable ? '' : 'none'}" />
     </div>
   `;
 
+  _wireToggle(row, isVariable);
+  paramList.appendChild(row);
+}
+
+/** Wire the hardcoded/variable toggle for a fill row. */
+function _wireToggle(row, initialChecked) {
   const toggle = row.querySelector('.param-toggle');
   const nameInput = row.querySelector('.param-name');
+  _applyToggleState(row, initialChecked);
   toggle.addEventListener('change', () => {
-    nameInput.style.display = toggle.checked ? '' : 'none';
+    _applyToggleState(row, toggle.checked);
     if (toggle.checked) nameInput.focus();
   });
+}
 
-  paramList.appendChild(row);
+function _applyToggleState(row, isVariable) {
+  row.querySelector('.mode-hard').style.display = isVariable ? 'none' : '';
+  row.querySelector('.mode-var').style.display  = isVariable ? '' : 'none';
+  const nameInput = row.querySelector('.param-name');
+  nameInput.style.display = isVariable ? '' : 'none';
+  row.classList.toggle('mode-is-var', isVariable);
 }
 
 function addParamRow(defaultValue = '', selectorHint = '', sensitive = false) {
@@ -398,6 +438,8 @@ socket.on('error', (data) => {
 btnStart.addEventListener('click', () => {
   const url = startUrlInput.value.trim();
   socket.emit('startRecording', { url });
+  // Open the VNC viewer in a new tab so the user can watch/interact with the browser
+  window.open(vncUrl, '_blank', 'noopener');
 });
 
 btnStop.addEventListener('click', () => {
@@ -407,6 +449,10 @@ btnStop.addEventListener('click', () => {
 btnWipe.addEventListener('click', () => {
   if (!confirm('Wipe all unsaved recording data? This cannot be undone.')) return;
   socket.emit('wipeData');
+});
+
+btnOpenVnc.addEventListener('click', () => {
+  window.open(vncUrl, '_blank', 'noopener');
 });
 
 btnRefresh.addEventListener('click', () => loadScripts());

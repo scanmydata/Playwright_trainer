@@ -118,6 +118,22 @@ app.post('/api/run', async (req, res) => {
   })();
 });
 
+/**
+ * Return the VNC viewer URL.
+ * In GitHub Codespaces, environment variables give the exact forwarded URL.
+ * Otherwise the client computes it from window.location.
+ */
+app.get('/api/vnc-url', (_req, res) => {
+  const codespaceName = process.env.CODESPACE_NAME;
+  const fwdDomain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
+  if (codespaceName && fwdDomain) {
+    return res.json({
+      url: `https://${codespaceName}-6080.${fwdDomain}/vnc.html?autoconnect=1&resize=scale`,
+    });
+  }
+  res.json({ url: null }); // client will derive it from window.location
+});
+
 /** Import Chrome DevTools Recorder JSON → return converted actions for preview */
 app.post('/api/import-chrome', (req, res) => {
   try {
