@@ -1,0 +1,12 @@
+node_modules/
+downloads/*.pdf
+downloads/*.xlsx
+downloads/*.csv
+downloads/*.zip
+downloads/*.docx
+# keep the .gitkeep so the directory exists in git
+!downloads/.gitkeep
+!scripts/.gitkeep
+npm-debug.log*
+.env
+*.log

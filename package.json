@@ -1,0 +1,16 @@
+{
+  "name": "playwright-trainer",
+  "version": "1.0.0",
+  "description": "Interactive Playwright training tool for recording and replaying browser procedures",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.1",
+    "playwright": "^1.44.0",
+    "socket.io": "^4.7.5"
+  }
+}
