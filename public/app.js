@@ -174,7 +174,10 @@ async function loadScripts() {
     opt.textContent = s.name;
     runScriptSelect.appendChild(opt);
   });
-  if (prev) runScriptSelect.value = prev;
+  if (prev) {
+    runScriptSelect.value = prev;
+    runScriptSelect.dispatchEvent(new Event('change'));
+  }
 }
 
 // ── Parameter rows ────────────────────────────────────────────────────────────
@@ -309,6 +312,19 @@ function _applyToggleState(row, isVariable) {
   const nameInput = row.querySelector('.param-name');
   nameInput.style.display = isVariable ? '' : 'none';
   row.classList.toggle('mode-is-var', isVariable);
+
+  // When variable mode is enabled we don't want the recorded value to show
+  // in the list, since it won't be carried through to the saved script.
+  const valSpan = row.querySelector('.fill-value');
+  if (valSpan) {
+    if (isVariable) {
+      valSpan.textContent = '';
+    } else {
+      // restore the value or masked value
+      const v = row.dataset.value;
+      valSpan.textContent = row.dataset.sensitive ? '••••••' : v;
+    }
+  }
 }
 
 function addParamRow(defaultValue = '', selectorHint = '', sensitive = false) {
@@ -342,8 +358,11 @@ function collectParams() {
     const toggle = row.querySelector('.param-toggle');
     if (!toggle || !toggle.checked) return;
     const name = row.querySelector('.param-name').value.trim();
-    const defaultValue = row.dataset.value;
-    if (name) params.push({ name, defaultValue });
+    const defaultValue = '';
+    if (name) {
+      const selectors = JSON.parse(row.dataset.selectors || '[]');
+      params.push({ name, defaultValue, selectors });
+    }
   });
 
   // Individual fill-param rows (auto-detected, unique value)
@@ -351,8 +370,11 @@ function collectParams() {
     const toggle = row.querySelector('.param-toggle');
     if (!toggle || !toggle.checked) return;
     const name = row.querySelector('.param-name').value.trim();
-    const defaultValue = row.dataset.value;
-    if (name) params.push({ name, defaultValue });
+    const defaultValue = '';
+    if (name) {
+      const selector = row.dataset.selector;
+      params.push({ name, defaultValue, selector });
+    }
   });
 
   // Manual param rows (added via "+ Add Parameter manually")
@@ -456,6 +478,40 @@ btnOpenVnc.addEventListener('click', () => {
 });
 
 btnRefresh.addEventListener('click', () => loadScripts());
+
+runScriptSelect.addEventListener('change', async () => {
+  const name = runScriptSelect.value;
+  // clear previous values
+  runParamsTA.value = '';
+  loopParamsTA.value = '';
+  if (!name) return;
+  try {
+    const res = await fetch(`/api/scripts/${encodeURIComponent(name)}`);
+    if (!res.ok) return;
+    const src = await res.text();
+    // look for the params destructuring block inside run() to extract default values
+    // anchor to `async function run` so we ignore other destructuring (e.g. imports)
+    const re = /async function run[^\{]*\{[\s\S]*?const\s*{\s*([\s\S]*?)\s*}\s*=\s*params;/;
+    const m = re.exec(src);
+    if (m) {
+      const obj = {};
+      m[1].split(',').forEach(part => {
+        const pieces = part.split('=').map(s=>s.trim());
+        if (pieces[0]) {
+          try {
+            // eslint-disable-next-line no-eval
+            obj[pieces[0]] = eval(pieces[1]);
+          } catch {
+            obj[pieces[0]] = '';
+          }
+        }
+      });
+      if (Object.keys(obj).length) runParamsTA.value = JSON.stringify(obj, null, 2);
+    }
+  } catch (err) {
+    console.error('failed to load script for params', err);
+  }
+});
 
 btnRun.addEventListener('click', async () => {
   const scriptName = runScriptSelect.value;

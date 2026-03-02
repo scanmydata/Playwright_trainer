@@ -78,8 +78,25 @@ else
 fi
 
 # ── 5. Start the Playwright Trainer server ────────────────────────────────────
+# kill any previous instance to avoid EADDRINUSE
+if pgrep -f "node server.js" >/dev/null; then
+  echo "Stopping existing Playwright Trainer server..."
+  pkill -f "node server.js" || true
+  sleep 1
+fi
+
 echo ""
-echo "Starting Playwright Trainer server on port 3000..."
+echo "Starting Playwright Trainer server on port 3000 (background)..."
 echo ""
-cd "$(dirname "$0")/.."
-DISPLAY="${DISPLAY}" node server.js
+# compute script directory reliably even if caller's cwd is different
+# (BASH_SOURCE may be empty when called via `bash file`, so fall back to $0)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# workspace root is one level above the .devcontainer folder
+WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${WORKSPACE_ROOT}" || exit 1
+# launch in background so startup script can exit cleanly
+DISPLAY="${DISPLAY}" nohup node server.js >/dev/null 2>&1 &
+
+# write a handy reminder command to a text file in the workspace root
+# path uses SCRIPT_DIR to stay correct
+echo "bash \\$PWD/.devcontainer/startup.sh" > "${SCRIPT_DIR}/../START_SERVER.txt"

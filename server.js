@@ -21,6 +21,10 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '2mb' }));
 
+// Trust the forward proxy (Codespaces / noVNC) so rate-limit can
+// use the X-Forwarded-For header without throwing an error.
+app.set('trust proxy', true);
+
 // Rate limiting for API routes (protects file system access)
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -97,9 +101,73 @@ app.post('/api/run', async (req, res) => {
 
   res.json({ ok: true, message: 'Script execution started' });
 
+  // helper: upgrade script before execution
+  function patchScriptForParams(src, paramsObj) {
+    let out = src;
+
+    // 1. eliminate any click that is immediately followed by a goto to the
+    //   same target – the goto alone is enough and avoids timing issues.
+    out = out.replace(/await page\.click\((['"`][^\)]+['"`])\);\s*await page\.goto\((['\"])(.*?)\2/g,
+      `await page.goto($2$3$2`);
+    // 2. after removal we can still rewrite remaining bare "a" clicks to use
+    //    the href of the next goto if it exists
+    out = out.replace(/await page\.click\("a"\);/g, (m, offset) => {
+      const rest = out.slice(offset + m.length);
+      const m2 = /await page\.goto\((['"])(.*?)\1/.exec(rest);
+      if (m2) {
+        const url = m2[2];
+        return `await page.click('a[href="${url}"]');`;
+      }
+      return m;
+    });
+
+    // 2. drop known flaky clicks (e.g. close buttons) that often disappear headlessly
+    // remove any click whose selector contains the Greek word Κλείσιμο ("Close")
+    // handles both plain and escaped quotes inside the string
+    out = out.replace(/await page\.click\([^)]*text=\\?"Κλείσιμο"\\?[^)]*\);/g, '// removed flaky close-click');
+
+    // 3. determine which parameter names to replace
+    let names = [];
+    if (paramsObj && Object.keys(paramsObj).length) {
+      names = Object.keys(paramsObj);
+    } else {
+      // parse the destructuring inside the run() function only
+      const m = /async function run[^\{]*\{[\s\S]*?const\s*{\s*([\s\S]*?)\s*}\s*=\s*params;/.exec(src);
+      if (m) {
+        names = m[1]
+          .split(',')
+          .map(s => s.split('=')[0].trim())
+          .filter(Boolean);
+      }
+    }
+
+    // 3. replace literal values with parameter variables
+    for (const name of names) {
+      const esc = name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+      const quotes = "['\\\"\\`]";
+      const fillRe = new RegExp(`(page\\.fill\\([^,]*${esc}[^,]*,\\s*)${quotes}.*?${quotes}`, 'g');
+      out = out.replace(fillRe, `$1${name}`);
+      const selectRe = new RegExp(`(page\\.selectOption\\([^,]*${esc}[^,]*,\\s*)${quotes}.*?${quotes}`, 'g');
+      out = out.replace(selectRe, `$1${name}`);
+    }
+
+    return out;
+  }
+
   // Run async so we don't block the response
   (async () => {
     try {
+      // always attempt to patch the script; paramsObj may be empty but
+      // we'll still infer parameter names from the source itself
+      {
+        let src = fs.readFileSync(file, 'utf8');
+        const newSrc = patchScriptForParams(src, params || {});
+        if (newSrc !== src) {
+          fs.writeFileSync(file, newSrc, 'utf8');
+          io.emit('runLog', { level: 'info', msg: '[run] Script upgraded to use parameter variables or improved selectors' });
+        }
+      }
+
       // Flush require cache so edits are picked up
       delete require.cache[require.resolve(file)];
       const script = require(file);
@@ -182,8 +250,13 @@ function buildRecorderInitScript() {
       return '[name="' + el.getAttribute('name') + '"]';
 
     const tag = el.tagName.toLowerCase();
+    // prefer text for buttons/links when available
     if ((tag === 'button' || tag === 'a') && el.textContent.trim())
       return 'text=' + JSON.stringify(el.textContent.trim().substring(0, 60));
+    // if it's a bare anchor without text, use href attribute to avoid generic "a" selector
+    if (tag === 'a' && el.getAttribute('href')) {
+      return 'a[href="' + el.getAttribute('href') + '"]';
+    }
 
     if (tag === 'input' && el.type)
       return 'input[type="' + el.type + '"]';
@@ -198,6 +271,13 @@ function buildRecorderInitScript() {
     const interesting = target.closest(
       'a, button, [role="button"], input[type="submit"], input[type="button"], label'
     ) || target;
+
+    // ignore obvious "close" buttons/popups; text may vary by language
+    const txt = (interesting.textContent || '').trim();
+    if (txt === 'Κλείσιμο' || txt.toLowerCase() === 'close') {
+      return; // don't record this click
+    }
+
     const selector = getBestSelector(interesting);
     const href = interesting.href || (interesting.closest('[href]') || {}).href || null;
 
@@ -205,7 +285,7 @@ function buildRecorderInitScript() {
       type: 'click',
       selector: selector,
       href: href,
-      text: (interesting.textContent || '').trim().substring(0, 100),
+      text: txt.substring(0, 100),
       ts: Date.now(),
     });
   }, true);

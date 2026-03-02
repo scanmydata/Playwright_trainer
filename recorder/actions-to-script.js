@@ -11,6 +11,7 @@
  */
 function actionsToScript(actions, options = {}) {
   const { name = 'recorded_script', params = [] } = options;
+  // params may include extra fields like `selector` or `selectors` used for mapping
 
   const cleaned = cleanActions(actions);
   const paramBlock = buildParamBlock(params, cleaned);
@@ -48,7 +49,7 @@ ${paramDestructure}
 
 /**
  * Run the script for every set of params in paramsArray (loop mode).
- * @param {Array} paramsArray - e.g. [{ startDate:'2024-01' }, { startDate:'2024-02' }]
+ * @param {Array} paramsArray - array of parameter objects, e.g. [{ foo:'bar' }, { foo:'baz' }]
  */
 async function runLoop(paramsArray = []) {
   const results = [];
@@ -63,7 +64,7 @@ async function runLoop(paramsArray = []) {
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args[0] === '--loop' && args[1]) {
-    // Usage: node script.js --loop '[{"startDate":"2024-01"},{"startDate":"2024-02"}]'
+    // Usage: node script.js --loop '[{"paramName":"value1"},{"paramName":"value2"}]' or any JSON array of parameter objects
     runLoop(JSON.parse(args[1])).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
   } else {
     run().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
@@ -132,14 +133,30 @@ function buildParamBlock(params, actions) {
  * Translate a single action to a Playwright code line.
  */
 function actionToCode(action, params = [], index = 0) {
-  const paramName = (value) => {
+  // find a parameter by its default value
+  const paramByValue = (value) => {
     const hit = params.find(p => p.defaultValue === value);
     return hit ? hit.name : null;
   };
 
-  const valueExpr = (value) => {
-    const pn = paramName(value);
-    return pn ? pn : JSON.stringify(value);
+  // find a parameter that corresponds to a selector (or one of multiple selectors)
+  const paramBySelector = (selector) => {
+    const hit = params.find(p => {
+      if (p.selector && p.selector === selector) return true;
+      if (p.selectors && Array.isArray(p.selectors) && p.selectors.includes(selector)) return true;
+      return false;
+    });
+    return hit ? hit.name : null;
+  };
+
+  const valueExpr = (action) => {
+    // selector-based parameters take precedence
+    if (action.selector) {
+      const ps = paramBySelector(action.selector);
+      if (ps) return ps;
+    }
+    const pn = paramByValue(action.value);
+    return pn ? pn : JSON.stringify(action.value);
   };
 
   switch (action.type) {
@@ -150,12 +167,12 @@ function actionToCode(action, params = [], index = 0) {
       return `await page.click(${JSON.stringify(action.selector)});`;
 
     case 'fill': {
-      const val = valueExpr(action.value);
+      const val = valueExpr(action);
       return `await page.fill(${JSON.stringify(action.selector)}, ${val});`;
     }
 
     case 'selectOption': {
-      const val = valueExpr(action.value);
+      const val = valueExpr(action);
       return `await page.selectOption(${JSON.stringify(action.selector)}, ${val});`;
     }
 
