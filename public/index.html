@@ -32,6 +32,9 @@
         <button id="btn-stop" class="btn btn-danger" disabled title="Stop the current session">
           ⏹ Stop &amp; Save
         </button>
+        <button id="btn-wipe" class="btn btn-secondary" disabled title="Clear unsaved recording data">
+          🗑 Wipe Data
+        </button>
       </div>
 
       <div class="divider"></div>
@@ -65,9 +68,9 @@
       <div class="field-row">
         <label for="run-params">
           Params (JSON)
-          <span class="hint">e.g. <code>{"startDate":"2024-01"}</code></span>
+          <span class="hint">e.g. <code>{"username":"alice"}</code></span>
         </label>
-        <textarea id="run-params" rows="3" placeholder='{"startDate": "2024-01-01"}'></textarea>
+        <textarea id="run-params" rows="3" placeholder='{"paramName": "value"}'></textarea>
       </div>
 
       <div class="field-row">
@@ -76,7 +79,7 @@
           <span class="hint">leave empty for a single run</span>
         </label>
         <textarea id="loop-params" rows="4"
-          placeholder='[{"startDate":"2024-01"},{"startDate":"2024-02"}]'></textarea>
+          placeholder='[{"paramName":"value1"},{"paramName":"value2"}]'></textarea>
       </div>
 
       <div class="btn-row">
@@ -104,10 +107,10 @@
 
       <!-- Parameter configuration -->
       <div id="param-config-area">
-        <h3>Parameters (optional)</h3>
-        <p class="hint">Mark fill values that should be variable between runs. Useful for loops.</p>
+        <h3>Input Values &amp; Parameters</h3>
+        <p class="hint">Check any value you want to turn into a script parameter (variable). Unchecked values will be hardcoded in the script.</p>
         <div id="param-list"></div>
-        <button type="button" class="btn btn-secondary btn-sm" id="btn-add-param">+ Add Parameter</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-add-param">+ Add Parameter manually</button>
       </div>
 
       <div class="modal-actions">

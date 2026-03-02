@@ -262,7 +262,7 @@ io.on('connection', (socket) => {
 
       state.context = await state.browser.newContext({
         acceptDownloads: true,
-        viewport: { width: 1280, height: 900 },
+        viewport: { width: 1920, height: 1080 },
       });
 
       // Expose binding so injected script can push actions to Node
@@ -336,6 +336,18 @@ io.on('connection', (socket) => {
     } catch (err) {
       socket.emit('error', { msg: 'Failed to save script: ' + err.message });
     }
+  });
+
+  /* ---- Wipe unsaved data ---- */
+  socket.on('wipeData', () => {
+    if (state.isRecording) {
+      socket.emit('error', { msg: 'Cannot wipe data while recording. Stop the recording first.' });
+      return;
+    }
+    state.actions = [];
+    io.emit('stateUpdate', { isRecording: false, actionCount: 0 });
+    socket.emit('dataWiped');
+    io.emit('log', { msg: 'Unsaved recording data wiped.' });
   });
 
   socket.on('disconnect', () => {

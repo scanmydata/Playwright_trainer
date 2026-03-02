@@ -80,19 +80,28 @@ module.exports = { run, runLoop };
 
 /**
  * Clean & deduplicate a raw action list.
+ * Fill actions for the same selector are merged: the first occurrence keeps its
+ * position in the sequence but its value is updated to the last recorded value.
  */
 function cleanActions(actions) {
+  // Pre-compute the final value for each fill selector
+  const lastFillValue = new Map();
+  for (const a of actions) {
+    if (a.type === 'fill') lastFillValue.set(a.selector, a.value);
+  }
+
   const out = [];
+  const seenFillSelectors = new Set();
+
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
 
-    // Merge consecutive fills on the same selector (keep latest value)
     if (a.type === 'fill') {
-      const last = out[out.length - 1];
-      if (last && last.type === 'fill' && last.selector === a.selector) {
-        last.value = a.value;
-        continue;
-      }
+      if (seenFillSelectors.has(a.selector)) continue; // skip later duplicates
+      seenFillSelectors.add(a.selector);
+      // Use the final value for this selector
+      out.push({ ...a, value: lastFillValue.get(a.selector) });
+      continue;
     }
 
     // Deduplicate consecutive identical navigations

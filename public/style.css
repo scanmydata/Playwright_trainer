@@ -327,6 +327,64 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .param-row input { margin-bottom: 0; }
 .param-row .btn-sm { height: 34px; }
 
+/* ---- Fill-param rows (auto-detected inputs with toggle) ---- */
+.fill-param-row {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.fill-param-info {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 5px;
+  flex-wrap: wrap;
+}
+.fill-selector {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fill-value {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: #86efac;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fill-param-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text);
+  font-weight: 400;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toggle-label input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+}
+.fill-param-controls .param-name {
+  flex: 1;
+  min-width: 140px;
+}
+
 /* ---- Script source ---- */
 #script-source-code {
   background: var(--code-bg);

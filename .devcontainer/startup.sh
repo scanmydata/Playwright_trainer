@@ -11,8 +11,8 @@ DISPLAY_NUM=99
 DISPLAY=":${DISPLAY_NUM}"
 export DISPLAY
 
-SCREEN_WIDTH=1280
-SCREEN_HEIGHT=900
+SCREEN_WIDTH=1920
+SCREEN_HEIGHT=1080
 SCREEN_DEPTH=24
 
 echo "======================================================"

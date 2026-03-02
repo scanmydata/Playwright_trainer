@@ -7,6 +7,7 @@ const socket = io();
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const btnStart        = document.getElementById('btn-start');
 const btnStop         = document.getElementById('btn-stop');
+const btnWipe         = document.getElementById('btn-wipe');
 const btnRefresh      = document.getElementById('btn-refresh');
 const btnRun          = document.getElementById('btn-run');
 const btnViewScript   = document.getElementById('btn-view-script');
@@ -86,9 +87,12 @@ function setRecordingState(isRecording) {
   if (isRecording) {
     statusBadge.textContent = '● Recording';
     statusBadge.className   = 'badge badge-recording';
+    btnWipe.disabled = true;
   } else {
     statusBadge.textContent = '● Idle';
     statusBadge.className   = 'badge badge-idle';
+    // Enable wipe only when there are unsaved actions
+    btnWipe.disabled = currentActions.length === 0;
   }
 }
 
@@ -143,16 +147,65 @@ async function loadScripts() {
 
 // ── Parameter rows ────────────────────────────────────────────────────────────
 function buildParamRows() {
-  // Auto-detect fill actions from currentActions
   paramList.innerHTML = '';
   paramCounter = 0;
 
-  const fills = currentActions.filter(a => a.type === 'fill');
-  if (fills.length === 0) return;
+  // Deduplicate fills by selector: first occurrence keeps its position,
+  // but value is updated to the last recorded value for that selector.
+  const lastFillValue = new Map();
+  for (const a of currentActions) {
+    if (a.type === 'fill') lastFillValue.set(a.selector, a.value);
+  }
 
-  fills.forEach(fill => {
-    addParamRow(fill.value, fill.selector, fill.sensitive);
+  const fills = [];
+  const seen = new Set();
+  for (const a of currentActions) {
+    if (a.type === 'fill' && !seen.has(a.selector)) {
+      seen.add(a.selector);
+      fills.push({ ...a, value: lastFillValue.get(a.selector) });
+    }
+  }
+
+  if (fills.length === 0) return;
+  fills.forEach(fill => addFillParamRow(fill));
+}
+
+function addFillParamRow(fill) {
+  const id = ++paramCounter;
+  const row = document.createElement('div');
+  row.className = 'fill-param-row';
+  row.dataset.selector = fill.selector;
+  row.dataset.value = fill.value;
+  row.dataset.sensitive = fill.sensitive ? '1' : '';
+
+  const displayValue = fill.sensitive ? '••••••' : fill.value;
+  const suggestedName = sanitizeParamName(fill.selector);
+
+  row.innerHTML = `
+    <div class="fill-param-info">
+      <span class="fill-selector" title="${escAttr(fill.selector)}">${escAttr(fill.selector)}</span>
+      <span class="fill-value">${escAttr(displayValue)}</span>
+    </div>
+    <div class="fill-param-controls">
+      <label class="toggle-label">
+        <input type="checkbox" class="param-toggle"${fill.sensitive ? ' checked' : ''}>
+        Convert to parameter
+      </label>
+      <input type="text" class="param-name"
+             placeholder="paramName (e.g. ${escAttr(suggestedName)})"
+             value="${escAttr(suggestedName)}"
+             style="display:${fill.sensitive ? '' : 'none'}" />
+    </div>
+  `;
+
+  const toggle = row.querySelector('.param-toggle');
+  const nameInput = row.querySelector('.param-name');
+  toggle.addEventListener('change', () => {
+    nameInput.style.display = toggle.checked ? '' : 'none';
+    if (toggle.checked) nameInput.focus();
   });
+
+  paramList.appendChild(row);
 }
 
 function addParamRow(defaultValue = '', selectorHint = '', sensitive = false) {
@@ -179,13 +232,24 @@ function escAttr(s) {
 }
 
 function collectParams() {
-  const rows = paramList.querySelectorAll('.param-row');
   const params = [];
-  rows.forEach(row => {
+
+  // Fill-param rows (auto-detected): only include if toggle is checked
+  paramList.querySelectorAll('.fill-param-row').forEach(row => {
+    const toggle = row.querySelector('.param-toggle');
+    if (!toggle || !toggle.checked) return;
+    const name = row.querySelector('.param-name').value.trim();
+    const defaultValue = row.dataset.value;
+    if (name) params.push({ name, defaultValue });
+  });
+
+  // Manual param rows (added via "+ Add Parameter manually")
+  paramList.querySelectorAll('.param-row').forEach(row => {
     const name = row.querySelector('.param-name').value.trim();
     const defaultValue = row.querySelector('.param-default').value;
     if (name) params.push({ name, defaultValue });
   });
+
   return params;
 }
 
@@ -222,12 +286,14 @@ socket.on('actionRecorded', (action) => {
 socket.on('recordingStarted', () => {
   currentActions = [];
   actionLog.innerHTML = '';
+  btnWipe.disabled = true;
   appendLog(serverLog, '▶ Recording started', 'log-success');
 });
 
 socket.on('recordingStopped', (data) => {
   currentActions = data.actions || currentActions;
   appendLog(serverLog, `⏹ Recording stopped — ${data.actionCount} action(s)`, 'log-info');
+  btnWipe.disabled = currentActions.length === 0;
   // Open save modal
   modalActionCount.textContent = data.actionCount + ' action(s)';
   scriptNameInput.value = '';
@@ -238,7 +304,17 @@ socket.on('recordingStopped', (data) => {
 socket.on('scriptSaved', (data) => {
   appendLog(serverLog, `💾 Saved: ${data.file}`, 'log-success');
   closeModal(modalSave);
+  currentActions = [];
+  btnWipe.disabled = true;
   loadScripts();
+});
+
+socket.on('dataWiped', () => {
+  currentActions = [];
+  actionLog.innerHTML = '';
+  actionCount.textContent = '0';
+  btnWipe.disabled = true;
+  appendLog(serverLog, '🗑 Unsaved data wiped.', 'log-info');
 });
 
 socket.on('error', (data) => {
@@ -254,6 +330,11 @@ btnStart.addEventListener('click', () => {
 
 btnStop.addEventListener('click', () => {
   socket.emit('stopRecording');
+});
+
+btnWipe.addEventListener('click', () => {
+  if (!confirm('Wipe all unsaved recording data? This cannot be undone.')) return;
+  socket.emit('wipeData');
 });
 
 btnRefresh.addEventListener('click', () => loadScripts());
