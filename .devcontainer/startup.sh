@@ -11,8 +11,8 @@ DISPLAY_NUM=99
 DISPLAY=":${DISPLAY_NUM}"
 export DISPLAY
 
-SCREEN_WIDTH=1280
-SCREEN_HEIGHT=900
+SCREEN_WIDTH=1920
+SCREEN_HEIGHT=1080
 SCREEN_DEPTH=24
 
 echo "======================================================"
@@ -50,7 +50,8 @@ fi
 # ── 3. Start x11vnc (VNC server on Xvfb display) ─────────────────────────────
 if ! pgrep -x x11vnc > /dev/null; then
   echo "Starting x11vnc..."
-  x11vnc -display "${DISPLAY}" -forever -nopw -quiet -rfbport 5900 &
+  x11vnc -display "${DISPLAY}" -forever -nopw -quiet -rfbport 5900 \
+         -clip "${SCREEN_WIDTH}x${SCREEN_HEIGHT}+0+0" &
   sleep 1
 else
   echo "x11vnc already running"

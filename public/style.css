@@ -327,6 +327,116 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); }
 .param-row input { margin-bottom: 0; }
 .param-row .btn-sm { height: 34px; }
 
+/* ---- Fill-param rows (auto-detected inputs with toggle) ---- */
+.fill-param-row {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.fill-param-row.fill-param-group {
+  border-color: var(--accent);
+}
+.fill-param-info {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 5px;
+  flex-wrap: wrap;
+}
+.fill-param-info--group {
+  margin-bottom: 4px;
+}
+.fill-group-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.fill-selectors-list {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+  line-height: 1.6;
+}
+.fill-selectors-list code {
+  background: var(--code-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  margin-right: 4px;
+}
+.fill-selector {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fill-value {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: #86efac;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fill-param-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- Hardcoded / Variable mode toggle ---- */
+.mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.mode-toggle input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.mode-state {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-hard {
+  background: rgba(224, 82, 82, 0.15);
+  color: #ff9999;
+}
+.mode-var {
+  background: rgba(124, 106, 247, 0.2);
+  color: var(--accent);
+}
+.fill-param-controls .param-name {
+  flex: 1;
+  min-width: 140px;
+}
+
+/* ---- Import section ---- */
+.import-filename {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  align-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
 /* ---- Script source ---- */
 #script-source-code {
   background: var(--code-bg);
