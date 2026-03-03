@@ -143,188 +143,130 @@ node user-scripts/login_download_vat.js --loop '[{"startDate":"2024-01"},{"start
 
 ---
 
-## Example: E1/E2/E3 script
+## Example: E1/E2/E3 Income Tax Declarations Script
 
-A second generated script (`user-scripts/e1-e2-e3.js`) targets the
-income‑tax declarations portal and behaves similarly to the CC/VAT script
-above, with a few additional conveniences:
+The `user-scripts/e1-e2-e3.js` script downloads E1/E2/E3 income tax declarations and εκκαθαριστικά from the AADE portal.
 
-* **years** may be a single year or an array, e.g. `2025` or
-  `[2023,2024]`.  If omitted the current year is used.
-* **docs** is an array of document keys to download.  The available keys are
-  discovered automatically by scanning the page for buttons inside the main
-  table.  By default the helper excludes buttons whose label contains
-  “ΣΥΝΟΨΗ”, the E3‑myDATA button, or the “Υποβολή Τροποποιητικής” option;
-  all other buttons are offered as valid docs.
-* **choices** lets you pre‑select values for any `<select>` dropdowns on the
-  page; it is entirely optional and you only need to provide it if the
-  portal shows multiple options (e.g. year, type of declaration).  The
-  runner logs the list of dropdowns it sees for inspection, e.g.:
+### Parameters
 
-  ```
-  [ { name: 'YEAR', options: [ { value: '2025', text: '2025' }, … ] } ]
-  ```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `username` | string | `""` | TAXISnet username (required) |
+| `password` | string | `""` | TAXISnet password (required) |
+| `years` | number or array | `[2025]` | Year(s) to download. Single year: `2025`, multiple: `[2023,2024,2025]` |
+| `docs` | string[] | auto-discovered | Document button names to download. Use shortcuts: `"E1"`, `"E2_YPO"`, `"E2_SYZ"`, `"E3"`, `"EKKATH"`, `"EKKATH_SYZ"` or full button names like `"PBE1_PRINT_PDF"`, `"PB_EKKATH_PDF"` |
+| `choices` | object | `{}` | Optional: pre-select dropdown values, e.g. `{"YEAR":"2025"}` |
 
-  To pick a value include it in the `choices` object (`"YEAR":"2025"`)
-  and the script will call `page.selectOption()` before clicking the
-  download buttons.  If you don't need to change anything you can omit
-  `choices` completely and the script will use whatever default is already
-  selected on the page.
-* The returned `result` object is identical to the VAT script (`noOblig`,
-  `downloaded`, `downloadPath`, `invalidCreds`, `error`).
+### Return Object (result)
 
-Buttons are mapped internally by their `name` attribute (which varies by
-year, type of declaration).  The script prints them when it discovers them.
-For the sample HTML above you would see entries like:
+The script returns an object with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `noOblig` | boolean | `true` if no data/obligations were found for the requested period |
+| `downloaded` | boolean | `true` if at least one PDF was successfully saved |
+| `downloadPath` | string\|null | Path to the last downloaded file, or `null` if none |
+| `invalidCreds` | boolean | `true` when login fails with an error message |
+| `error` | string\|null | Error message string if an error occurred, otherwise `null` |
+
+### Environment Variables
+
+- **`PW_HEADLESS=0`** : Run in headed mode (visible browser window) — useful for debugging
+- **`PW_HEADLESS=1`** : Run in headless mode (default)
+- **`DEBUG=1`** : Enable verbose debug output (prints dropdown lists, discovered buttons, popup events, etc.)
+
+### Usage Examples
+
+#### Basic: Download E1 and EKKATH for 2025 (default year)
+```bash
+node user-scripts/e1-e2-e3.js \
+  --params '{"username":"user4536951550","password":"antonis38"}'
+```
+
+#### Specific year with selected documents
+```bash
+node user-scripts/e1-e2-e3.js \
+  --params '{"username":"user4536951550","password":"antonis38",\
+"years":2025,"docs":["E1","EKKATH"]}'
+```
+
+#### Headed mode with debug output
+```bash
+PW_HEADLESS=0 DEBUG=1 node user-scripts/e1-e2-e3.js \
+  --params '{"username":"youruser","password":"yourpass","years":2025}'
+```
+
+#### Multiple years
+```bash
+node user-scripts/e1-e2-e3.js \
+  --params '{"username":"youruser","password":"yourpass",\
+"years":[2023,2024,2025],"docs":["E1","EKKATH"]}'
+```
+
+#### Specify dropdown selections explicitly
+```bash
+node user-scripts/e1-e2-e3.js \
+  --params '{"username":"youruser","password":"yourpass",\
+"years":2025,"docs":["E1","EKKATH"],"choices":{"YEAR":"2025"}}'
+```
+
+#### Loop over multiple credential sets
+```bash
+node user-scripts/e1-e2-e3.js \
+  --loop '[{"username":"user1","password":"pass1"},\
+{"username":"user2","password":"pass2"}]'
+```
+
+### How It Works
+
+1. **Auto-discovery**: If you don't specify `docs`, the script scans the page for enabled document buttons and automatically filters out:
+   - ΣΥΝΟΨΗ (summary)
+   - myDATA buttons
+   - Τροποποιητική (amendment) buttons
+
+2. **Smart download**: When clicking a document button opens a popup/new tab with a PDF viewer, the script:
+   - Detects the popup
+   - Tries multiple download methods in order:
+     - Click `#icon` or `cr-icon` (Chrome PDF viewer download button)
+     - Click shadow-DOM icon elements
+     - Use standard download links/buttons
+     - Capture PDF from network response
+     - Fetch PDF URL directly from embed/iframe/object elements
+
+3. **Disabled button handling**: Automatically skips disabled document buttons to prevent timeouts.
+
+4. **File naming**: Downloads are saved to `downloads/report-<DOC>-<YEAR>.pdf`
+
+### Debug Output Example
+
+When running with `DEBUG=1`, the script prints:
 
 ```
-[run] discovered document buttons [
-  { name: 'PBE1_PRINT_PDF', text: 'Ε1' },
-  { name: 'PB_EKKATH_PDF', text: 'ΥΠΟΧΡΕΟΥ' },         // εκκαθαριστικό υποχρέου
-  { name: 'PB_EKKATH_PDF_SYZ', text: 'ΣΥΖΥΓΟΥ/ΜΣΣ' },  // εκκαθαριστικό συζύγου
+[run] dropdowns on page (year 2025): [
+  { name: 'YEAR', options: [ { value: '2025', text: '2025' }, ... ] }
 ]
+[run] discovered document buttons [
+  { name: 'PBE1_PRINT_PDF', text: 'Ε1', disabled: false },
+  { name: 'PB_EKKATH_PDF', text: 'ΕΚΚΑΘΑΡΙΣΤΙΚΟ ΥΠΟΧΡΕΟΥ', disabled: false },
+  { name: 'PBE2_PRINT_PDF', text: 'Ε2 ΥΠΟΧΡΕΟΥ', disabled: true }
+]
+[run] default docs list -> [ 'PBE1_PRINT_PDF', 'PB_EKKATH_PDF' ]
+[run] downloading E1 for year 2025
+[download] saved to /workspaces/Playwright_trainer/downloads/report-E1-2025.pdf
 ```
 
-Your `docs` parameter must specify the button `name`, not its visible text.
-For the example above, to download E1 and the υποχρέωση εκκαθαριστικό, you'd
-pass `["PBE1_PRINT_PDF","PB_EKKATH_PDF"]`.
+### Notes
 
-> **Note:** clicking a document button often opens a tab/window with a
-> PDF viewer. The runner now detects this popup, operates within it, clicks
-> the `#viewer` element to activate the embedded toolbar, and then presses
-> the download link, just like the VAT‑KEEP script does.  This ensures files
-> are fetched correctly even when the portal uses separate windows.
-
-```bash
-# download Ε1 plus the υποχρέου εκκαθαριστικό for 2025:
-node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user","password":"pw","years":2025,\
-"docs":["PBE1_PRINT_PDF","PB_EKKATH_PDF"]}'
-
-# same, but specify the YEAR dropdown explicitly (choices is optional):
-node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user","password":"pw","years":2025,\
-"choices":{"YEAR":"2025"},"docs":["PBE1_PRINT_PDF","PB_EKKATH_PDF"]}'
-```
-
-Note that the script automatically filters out buttons whose label
-contains "ΣΥΝΟΨΗ", "myDATA" or "Τροποποιητικ", so you don't have to explicitly
-exclude those when letting it discover documents for you.
-
-### Calling the E1/E2/E3 script
-
-```bash
-# single year, download Ε1 and the υποχρέου εκκαθαριστικό
-node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user4536951550","password":"antonis38",\
-"years":2025,"docs":["E1","PB_EKKATH_PDF"],"choices":{"YEAR":"2025"}}'
-```
-
-You can also loop over years or credential sets with `--loop`, just like the
-VAT script.
-
-  ```
-  [ { name: 'YEAR', options: [ { value: '2025', text: '2025' }, … ] } ]
-  ```
-oparameter m
-button `n  To pick a value include it in the `choices` object (`"YEAR":"2025"`)
-  aing, e.g. `nd the script will call `page.selectOption()` before clicking the
-  downla Thb. efault be aou do 't needocs` i to change anything you can omit
-  `cdiicos` combtttons ynd th  script will use whatever default is already
-  selected on the page.
-* The returned `result` object is identical to the VAT script (`noOblig`,
-Exampl`sdownloaded`, `downloadPath`, `invalidCreds`, `error`).
-
-Butbash  int them when it discorers them.  For the samplu HTML above you wonld nee
-#rdownloas Ε1epl he υποχρεο εκκαθαριστικf 2025:
-odeusr-pt/e1-e2-e3
-  --pars '{"usname""ser","assword":"p,"yars":2025,\
-"ocs":["PBE1_PRINT_PDF","PB_EKKATH_PDF"]}'
-```
-
->**Nt:**clickingadumnt bttn ofen openw tb/window wi a
-> PDF iewer.Th runner nwdectsispopup,operateswithin, click
-> the `#vewer`lentto actvate the embedded toobarand then esses
-> the dwnloa link, js liktheVAT‑KEEP sipt[dnes  Thissonsures files
-> are fetched correctly even chen tun ptrtal  ses sepabate tindows.
-
-# [am, but spcfy he YEARdropownxlicil(chocesi option  ):
-no eruserPsBEi1tF/e1-e2-e3.j  \
-  --para st'{"usernamx::1use'","p ssword":}w" 'lBrstext: 'ΥΠΟΧΡΕΟΥ' },         // εκκαθαριστικό υποχρέου
-  { name: 'Pgs the list of dropdowns it sees for inspection, e.g.:
-   [ { name: 'YEAR', options: [ { value: '2025', text: '2025' }, … ] } ]
-  ```
-Note tpat eht sertutoaiclly filtrs otos whoselabel
-s“ΥΝΨΗ,“myDATA” 
-exclude thos  whei cettkn  ilndiscoudt dh`emen`obforeyot.R":"2025"`)
-
-### Calli gethe d /E2/E3escr`pp
-
-a``belh
-#tspngt byea ,nh a l ad Ε1eoitchhatυποχρεοh εκiαθαnι`τioό
-nodscutor- yrdpt /e1 rp-i3.jl \.
-* The returned `result` object is identical to the VAT script (`noOblig`,
-od
-Butbashprint them when it discovers them.  For the sample HTML above you would see
-#rdownloas Ε1 pl he υποχρεο εκκαθαριστικf 2025:
-odeusr-pt/e1-e2-e3
-  --pars '{
-
-> l
-
-# [am, but spcfy he YEARdropownxlicil(chocesi option  ):
-no e'userPsBEi1tF/e1-e2-e3.j, \
-  --para st'{"usernamx::1use'","p ssword":}w" 'PBrstext: 'ΥΠΟΧΡΕΟΥ' },         // εκκαθαριστικό υποχρέου
-  { name: 'PB_EKKATH_PDF_SYZ', text: 'ΣΥΖΥΓΟΥ/ΜΣΣ' },  // εκκαθαριστικό συζύγου
-```
-
-Note that dho scs tte utomatic lly filters o t r stoss whose label
-contains “tΥΝeΨΗ,“myDATA” 
-exclude thos  whea lettune itddiscoboO dNesmenqotforsyoa.ach
-
-### Callisgethe E1/E2/E3 script
-
-t``bthh
-# singlucypae,.h aol ad Ε1 oi ithtmυποχρεοp εκtαθαyιlτsoό
-nodveuuor- ercpp /e1ts -s3.je \ητικ”.
-
-xa
-```bash
-# download Ε1 plus the υποχρεου εκκαθαριστικό for 2025:
-node user-scripts/e1-e2-e3.js \
-  --params 
-
-> `
-
-# same, but specify the YEAR dropdown explicitly (choices is optional):
-node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user","password":"pw","years":2025,\
-"choices":{"YEAR":"2025"},"docs":["PBE1_PRINT_PDF","PB_EKKATH_PDF"]}'
-```
-
-Note that the script automatically filters out buttons whose label
-contains “ΣΥΝΟΨΗ”, “myDATA” or “Τροποποιητικ”, so you don't have to explicitly
-exclude those when letting it discover documents for you.
-
-### Calling the E1/E2/E3 script
-
-```bash
-# single year, download Ε1 and the υποχρεου εκκαθαριστικό
-node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user4536951550","password":"antonis38",\
-"years":2025,"docs":["E1","PB_EKKATH_PDF"],"choices":{"YEAR":"2025"}}'
-```
-
-You can also loop over years or credential sets with `--loop`, just like the
-VAT script.
+- The script defaults to **year 2025** when no year is specified
+- Files are saved to the `downloads/` folder with descriptive names
+- The script handles login, navigation, popup windows, and logout automatically
+- Use document shortcuts (`E1`, `EKKATH`) or full button names (`PBE1_PRINT_PDF`) interchangeably
 
 > In our environment real network access may be restricted; the
 > examples above assume the portal is reachable and the selectors still
 > match the corresponding buttons.  The script logs available dropdowns and
 > button names to help you pick the right `docs` values when running against
 > a live session.
-
----
 
 ---
 
