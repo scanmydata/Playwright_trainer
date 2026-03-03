@@ -10,6 +10,7 @@
   "dependencies": {
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.1",
+    "pdf-parse": "^1.1.1",
     "playwright": "^1.44.0",
     "socket.io": "^4.7.5"
   }

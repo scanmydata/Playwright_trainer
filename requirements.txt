@@ -1,0 +1,9 @@
+# dependencies για Python version του σεναρίου VAT-KEEP
+
+# browser automation (Python bindings του Playwright)
+playwright
+
+# βιβλιοθήκη για ανάγνωση/εξαγωγή κειμένου από PDF
+pdfminer.six
+# αν προτιμάς άλλη, π.χ. PyPDF2:
+# PyPDF2
