@@ -70,10 +70,27 @@ node user-scripts/login_download_vat.js
 
 ### Single run with params
 ```bash
-# supply JSON via new --params flag (you can now also specify periodType/month/quarter):
+# supply JSON via new --params flag (you can now also specify periodType/month/quarter or a date range):
 node user-scripts/login_download_vat.js --params '{"username":"alice","password":"secret","year":2025,"periodType":"oneMonth","month":7}'
 # or via the UI: set Params JSON and click ▶ Run
 
+For headless debugging you can prefix with `PW_HEADLESS=0` (or `PW_HEADLESS=1` to force headless). Examples:
+
+```bash
+# single month
+PW_HEADLESS=0 node user-scripts/CC.js --params '{"username":"foo","password":"bar","year":2025,"periodType":"oneMonth","month":7}'
+
+# single quarter
+PW_HEADLESS=0 node user-scripts/CC.js --params '{"username":"foo","password":"bar","year":2025,"periodType":"threeMonths","quarter":2}'
+
+# whole year 2025 (bulk quarters)
+PW_HEADLESS=0 node user-scripts/CC.js --params '{"username":"foo","password":"bar","year":2025,"periodType":"threeMonths"}'
+
+# note: each period's PDF is saved with its period label (e.g. viewPdf-1, viewPdf-2)
+
+# arbitrary date range (monthly)
+PW_HEADLESS=0 node user-scripts/CC.js --params '{"username":"foo","password":"bar","startDate":"2025-01","endDate":"2025-12"}'
+```
 > Recorded scripts that navigate to a declarations list now automatically try to
 > download the PDF. The runner will also clear cookies, permissions and hit the
 > GSIS logout endpoint before attempting login, ensuring you can supply fresh
@@ -89,6 +106,11 @@ node user-scripts/login_download_vat.js --params '{"username":"alice","password"
 > * `downloaded`: true if a PDF was successfully fetched
 > * `downloadPath`: path where the file was written, if any
 > * `error`: string describing any error (including skipped login)
+>
+> **Bulk period support:** omit `month` when `periodType` is `oneMonth` or omit
+> `quarter` when `periodType` is `threeMonths` and the runner will automatically
+> iterate through all 12 months or four quarters of the year in a single
+> browser session. Results are returned as an array of objects, one per period.
 >
 > First the script tries to click any visible download
 > button in the popup (eg. the toolbar Λήψη/Download icon) and catch the

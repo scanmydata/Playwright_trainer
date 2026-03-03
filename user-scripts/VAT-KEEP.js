@@ -12,6 +12,10 @@ const fs = require('fs');
  * @param {string} [params.periodType] - 'oneMonth' or 'threeMonths'
  * @param {number} [params.month] - 1–12 (required when periodType is oneMonth)
  * @param {number} [params.quarter] - 1–4 (required when periodType is threeMonths)
+ * @param {string} [params.startDate] - YYYY-MM (inclusive); when provided with
+ *   endDate the script will iterate month-by-month between the two dates and
+ *   ignore periodType/month/quarter.
+ * @param {string} [params.endDate] - YYYY-MM (inclusive) end of range.
  */
 
 async function run(params = {}) {
@@ -114,45 +118,231 @@ async function run(params = {}) {
 
     await page.goto(`https://www1.aade.gr/taxisnet/vat/protected/displayLiabilitiesForYear.htm?declarationType=vatF2&year=${year}`, { waitUntil: 'domcontentloaded' });
 
-    // compute period start/end based on params
+    // determine which periods to check. there are three modes:
+    // 1. explicit single month/quarter (params.month or params.quarter)
+    // 2. full‑year mode (no month/quarter given, just periodType)
+    // 3. arbitrary date range (params.startDate and params.endDate, YYYY-MM)
     const periodType = params.periodType || 'oneMonth';
-    let periodStart = '';
-    let periodEnd = '';
+    let values = [];
 
-    function pad(n) { return n < 10 ? '0' + n : '' + n; }
-    if (periodType === 'oneMonth') {
-      const m = parseInt(params.month, 10);
-      if (!m || m < 1 || m > 12) {
-        throw new Error('For oneMonth period you must pass params.month (1-12)');
+    // range mode takes precedence
+    if (params.startDate && params.endDate) {
+      // generate list of month numbers between start and end inclusive
+      const [sY, sM] = params.startDate.split('-').map(Number);
+      const [eY, eM] = params.endDate.split('-').map(Number);
+      if (!sY || !sM || !eY || !eM) {
+        throw new Error('startDate and endDate must be YYYY-MM');
       }
-      const lastDay = new Date(year, m, 0).getDate();
-      periodStart = `01/${pad(m)}/${year}`;
-      periodEnd = `${lastDay}/${pad(m)}/${year}`;
+      let curY = sY, curM = sM;
+      while (curY < eY || (curY === eY && curM <= eM)) {
+        values.push({ year: curY, month: curM });
+        curM++;
+        if (curM === 13) { curM = 1; curY++; }
+      }
+      // when range mode is active we will override the usual periodType
+    } else if (periodType === 'oneMonth') {
+      if (params.month) {
+        values = [parseInt(params.month, 10)];
+      } else {
+        values = Array.from({ length: 12 }, (_, i) => i + 1);
+      }
     } else if (periodType === 'threeMonths') {
-      const q = parseInt(params.quarter, 10);
-      if (!q || q < 1 || q > 4) {
-        throw new Error('For threeMonths period you must pass params.quarter (1-4)');
+      if (params.quarter) {
+        values = [parseInt(params.quarter, 10)];
+      } else {
+        values = [1, 2, 3, 4];
       }
-      const startMonth = 1 + (q - 1) * 3;
-      const endMonth = startMonth + 2;
-      const lastDay = new Date(year, endMonth, 0).getDate();
-      periodStart = `01/${pad(startMonth)}/${year}`;
-      periodEnd = `${lastDay}/${pad(endMonth)}/${year}`;
     } else {
       throw new Error('Unsupported periodType: ' + periodType);
     }
 
-    const enc = encodeURIComponent;
-    const listUrl =
-      `https://www1.aade.gr/taxisnet/vat/protected/displayDeclarationsList.htm` +
-      `?declarationType=vatF2&year=${year}` +
-      `&periodType=${periodType}` +
-      `&periodStart=${enc(periodStart)}` +
-      `&periodEnd=${enc(periodEnd)}` +
-      `&effectivePeriodStart=${enc(periodStart)}` +
-      `&effectivePeriodEnd=${enc(periodEnd)}`;
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
-    await page.goto(listUrl, { waitUntil: 'domcontentloaded' });
+    const enc = encodeURIComponent;
+    const sessionResults = [];
+
+    // helper to process one period value and return its result object
+    async function processPeriod(val) {
+      // human-readable period label for logging
+      const label = (typeof val === 'object' && val.year && val.month)
+        ? `${val.year}-${String(val.month).padStart(2,'0')}`
+        : String(val);
+      let periodStart, periodEnd;
+      // handle range object {year,month}
+      if (typeof val === 'object' && val.year && val.month) {
+        const m = val.month;
+        const y = val.year;
+        const lastDay = new Date(y, m, 0).getDate();
+        periodStart = `01/${pad(m)}/${y}`;
+        periodEnd = `${lastDay}/${pad(m)}/${y}`;
+      } else if (periodType === 'oneMonth') {
+        const m = val;
+        const lastDay = new Date(year, m, 0).getDate();
+        periodStart = `01/${pad(m)}/${year}`;
+        periodEnd = `${lastDay}/${pad(m)}/${year}`;
+      } else {
+        const q = val;
+        const startMonth = 1 + (q - 1) * 3;
+        const endMonth = startMonth + 2;
+        const lastDay = new Date(year, endMonth, 0).getDate();
+        periodStart = `01/${pad(startMonth)}/${year}`;
+        periodEnd = `${lastDay}/${pad(endMonth)}/${year}`;
+      }
+
+      const listUrl =
+        `https://www1.aade.gr/taxisnet/vat/protected/displayDeclarationsList.htm` +
+        `?declarationType=vatF2&year=${year}` +
+        `&periodType=${periodType}` +
+        `&periodStart=${enc(periodStart)}` +
+        `&periodEnd=${enc(periodEnd)}` +
+        `&effectivePeriodStart=${enc(periodStart)}` +
+        `&effectivePeriodEnd=${enc(periodEnd)}`;
+
+      await page.goto(listUrl, { waitUntil: 'domcontentloaded' });
+      // if the login form reappeared, bail out immediately
+      if (await page.locator('#username').count()) {
+        throw new Error('Session expired or login required when loading list page');
+      }
+
+      // now reproduce the remainder of the original logic but using a
+      // fresh copy of the result template for this period
+      const res = { ...result, noOblig: false, downloaded: false, downloadPath: null, invalidCreds: false, error: null };
+      const bodyText = await page.evaluate(() => document.body.innerText || '');
+      if (/Δεν\s+έχετε\s+υποχρεώσεις/i.test(bodyText)) {
+        console.log('[run] no obligations for period', label);
+        res.noOblig = true;
+        return res;
+      }
+      if (/Δεν\s+υπάρχουν\s+αποθηκευμένες\s+Δηλώσεις/i.test(bodyText)) {
+        console.log('[run] no saved declarations for period', label);
+        res.noOblig = true;
+        return res;
+      }
+      // choose the row whose displayed period matches our computed dates
+      let popup;
+      const matchedRow = page.locator('tr')
+        .filter({ hasText: periodStart })
+        .filter({ hasText: periodEnd })
+        .first();
+      if (await matchedRow.count()) {
+        const btn = matchedRow.locator('text="Προβολή"').first();
+        const [p] = await Promise.all([
+          page.waitForEvent('popup'),
+          btn.click(),
+        ]);
+        popup = p;
+      } else {
+        const previews = page.locator('text="Προβολή"');
+        const count = await previews.count();
+        if (count === 0) {
+          console.log('[run] no Προβολή buttons for period', label, 'body text:', bodyText.slice(0,1500));
+          throw new Error('No Προβολή button found');
+        }
+        const target = previews.nth(count - 1);
+        const [p] = await Promise.all([
+          page.waitForEvent('popup'),
+          target.click(),
+        ]);
+        popup = p;
+      }
+      await popup.waitForLoadState('domcontentloaded');
+
+      const pdfRespPromise = popup.waitForResponse(
+        r => (r.headers()['content-type'] || '').includes('pdf'),
+        { timeout: 10000 }
+      ).catch(() => null);
+
+      const iconBtn = popup.locator('#icon, cr-icon');
+      if (await iconBtn.count()) {
+        try {
+          await iconBtn.click();
+        } catch (e) {
+          await popup.evaluate(() => {
+            const el = document.querySelector('#icon');
+            if (el) el.click();
+          }).catch(() => {});
+        }
+      }
+
+      const prePdf = await pdfRespPromise;
+      if (prePdf) {
+        const buffer = await prePdf.body();
+        const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${label}.pdf`);
+        fs.mkdirSync(path.dirname(dlPath), { recursive: true });
+        fs.writeFileSync(dlPath, buffer);
+        console.log('[download] saved to', dlPath);
+        res.downloaded = true;
+        res.downloadPath = dlPath;
+        return res;
+      }
+
+      const downloadSelector = 'a[download], button[download], a:has-text("Λήψη"), a:has-text("Download"), button:has-text("Download")';
+      const dlBtn = popup.locator(downloadSelector).first();
+      if (await dlBtn.count()) {
+        const [download] = await Promise.all([
+          popup.waitForEvent('download'),
+          dlBtn.click(),
+        ]);
+        const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${label}.pdf`);
+        fs.mkdirSync(path.dirname(dlPath), { recursive: true });
+        await download.saveAs(dlPath);
+        console.log('[download] saved to', dlPath);
+        res.downloaded = true;
+        res.downloadPath = dlPath;
+        return res;
+      }
+
+      const pdfUrl = await popup.evaluate(() => {
+        const sel = 'embed[type="application/pdf"], iframe[src*=".pdf"], object[type="application/pdf"]';
+        const el = document.querySelector(sel);
+        return el ? el.src || el.data || el.getAttribute('src') : null;
+      });
+      if (!pdfUrl) {
+        const [download] = await Promise.all([
+          popup.waitForEvent('download', { timeout: 5000 }).catch(() => null),
+          popup.click('[download]').catch(() => {}),
+        ]);
+        if (download) {
+          const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${label}.pdf`);
+          fs.mkdirSync(path.dirname(dlPath), { recursive: true });
+          await download.saveAs(dlPath);
+          console.log('[download] saved to', dlPath);
+          res.downloaded = true;
+          res.downloadPath = dlPath;
+          return res;
+        } else {
+          throw new Error('Could not determine PDF URL or download action');
+        }
+      }
+      const response = await context.request.get(pdfUrl);
+      const buffer = await response.body();
+      const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${label}.pdf`);
+      fs.mkdirSync(path.dirname(dlPath), { recursive: true });
+      fs.writeFileSync(dlPath, buffer);
+      console.log('[download] saved to', dlPath);
+      res.downloaded = true;
+      res.downloadPath = dlPath;
+      return res;
+    }
+
+    // process each desired period sequentially
+    for (let i = 0; i < values.length; i++) {
+      const val = values[i];
+      const singleRes = await processPeriod(val);
+      sessionResults.push(singleRes);
+      if (i < values.length - 1) {
+        // navigate back to the list page to reuse the session/state
+        await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
+      }
+    }
+
+    if (sessionResults.length > 1) {
+      console.log('[run] multi-results', JSON.stringify(sessionResults));
+      return sessionResults;
+    } else {
+      console.log('[run] result', JSON.stringify(sessionResults[0]));
+      return sessionResults[0];
+    }
     // if navigation redirected back to login form we lost the session
     if (await page.locator('#username').count()) {
       throw new Error('Session expired or login required when loading list page');
