@@ -293,77 +293,25 @@ async function run(params = {}) {
         const dlPath = path.join(__dirname, '..', 'downloads', filename);
         fs.mkdirSync(path.dirname(dlPath), { recursive: true });
 
+        // simplified download: rely on network response capture
         let saved = false;
-        let download = null;
-
         const pdfRespPromise = downloadPage.waitForResponse(
           r => (r.headers()['content-type'] || '').toLowerCase().includes('application/pdf') || /\.pdf([?#].*)?$/i.test(r.url()),
           { timeout: 10000 }
         ).catch(() => null);
 
-        // Method 1: Chrome PDF viewer icon (#icon / cr-icon)
-        const iconBtn = downloadPage.locator('#icon, cr-icon').first();
-        if (await iconBtn.count()) {
-          const [iconDownload] = await Promise.all([
-            downloadPage.waitForEvent('download', { timeout: 5000 }).catch(() => null),
-            iconBtn.click().catch(() => {}),
-          ]);
-          download = iconDownload;
-        }
-
-        // Method 1b: click icon inside shadow DOM (Chrome viewer)
-        if (!download) {
-          const [shadowDownload] = await Promise.all([
-            downloadPage.waitForEvent('download', { timeout: 5000 }).catch(() => null),
-            downloadPage.evaluate(() => {
-              const stack = [document.documentElement];
-              while (stack.length) {
-                const root = stack.pop();
-                if (!root) continue;
-                const icon = root.querySelector && root.querySelector('#icon, cr-icon');
-                if (icon) {
-                  icon.click();
-                  return true;
-                }
-                const all = root.querySelectorAll ? root.querySelectorAll('*') : [];
-                for (const el of all) {
-                  if (el.shadowRoot) stack.push(el.shadowRoot);
-                }
-              }
-              return false;
-            }).catch(() => false),
-          ]);
-          download = shadowDownload;
-        }
-
-        // Method 2: Generic download links/buttons
-        if (!download) {
-          const downloadSelector = 'a[download], button[download], a:has-text("Λήψη"), a:has-text("Download"), button:has-text("Download")';
-          const dlBtn = downloadPage.locator(downloadSelector).first();
-          if (await dlBtn.count()) {
-            const [selectorDownload] = await Promise.all([
-              downloadPage.waitForEvent('download', { timeout: 5000 }).catch(() => null),
-              dlBtn.click().catch(() => {}),
-            ]);
-            download = selectorDownload;
+        // click the document button in order to trigger PDF generation
+        // (the caller already clicked the main button earlier to open popup)
+        const pdfResp = await pdfRespPromise;
+        if (pdfResp) {
+          const buffer = await pdfResp.body().catch(() => null);
+          if (buffer && buffer.length > 0) {
+            fs.writeFileSync(dlPath, buffer);
+            saved = true;
           }
         }
 
-        // Method 3: final [download] fallback click
-        if (!download) {
-          const [fallbackDownload] = await Promise.all([
-            downloadPage.waitForEvent('download', { timeout: 5000 }).catch(() => null),
-            downloadPage.click('[download]').catch(() => {}),
-          ]);
-          download = fallbackDownload;
-        }
-
-        if (download) {
-          await download.saveAs(dlPath);
-          saved = true;
-        }
-
-        // Method 4: if popup itself is a PDF URL, fetch directly
+        // fallback: if popup is a direct PDF
         if (!saved) {
           const currentUrl = downloadPage.url();
           if (/\.pdf([?#].*)?$/i.test(currentUrl)) {
@@ -378,45 +326,8 @@ async function run(params = {}) {
           }
         }
 
-        // Method 5: use pre-captured PDF network response
-        if (!saved) {
-          const pdfResp = await pdfRespPromise;
-          if (pdfResp) {
-            const buffer = await pdfResp.body().catch(() => null);
-            if (buffer && buffer.length > 0) {
-              fs.writeFileSync(dlPath, buffer);
-              saved = true;
-            }
-          }
-        }
-
-        // Method 6: extract PDF URL from embed/iframe/object and fetch bytes
-        if (!saved) {
-          const pdfUrl = await downloadPage.evaluate(() => {
-            const el = document.querySelector('embed[type="application/pdf"], iframe[src*=".pdf"], object[type="application/pdf"]');
-            if (!el) return null;
-            return el.getAttribute('src') || el.getAttribute('data') || null;
-          }).catch(() => null);
-
-          if (pdfUrl) {
-            let absoluteUrl = pdfUrl;
-            try {
-              absoluteUrl = new URL(pdfUrl, downloadPage.url()).toString();
-            } catch (e) {}
-
-            const response = await context.request.get(absoluteUrl).catch(() => null);
-            if (response && response.ok()) {
-              const buffer = await response.body().catch(() => null);
-              if (buffer && buffer.length > 0) {
-                fs.writeFileSync(dlPath, buffer);
-                saved = true;
-              }
-            }
-          }
-        }
-
         if (saved) {
-          console.log('[download] saved to', dlPath);
+          console.log('[download] saved to', dlPath, '(method=network)');
           result.downloaded = true;
           result.downloadPath = dlPath;
         } else {

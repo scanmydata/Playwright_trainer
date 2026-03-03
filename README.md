@@ -317,6 +317,60 @@ Open `http://localhost:3000` in your browser.
 
 ---
 
+## Example: E9/ENFIA script
+
+The `user-scripts/e9-enfia.js` script automates downloading the
+Ε9/ENFIA property declaration and periodic statements from the
+AADE‑ETAK portal.  It accepts credentials plus optional year(s) and
+document types.
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `username` | string | `""` | TAXISnet username (required) |
+| `password` | string | `""` | TAXISnet password (required) |
+| `years` | number or number[] | `[current year]` | Year or list of years to query |
+| `docs` | string[] | `['property']` | Which documents to fetch: `'property'` (περιουσιακή κατάσταση) and/or `'enfia'` |
+
+### Result Object
+
+Returns an object (or array when multiple year/doc combinations are
+requested) containing the standard flags:
+
+- `noOblig` – true if no file was available for the request
+- `downloaded` – true if a PDF was saved
+- `downloadPath` – path of the saved file when applicable
+- `invalidCreds` – true when login fails
+- `error` – error message on failure
+
+### Examples
+
+Download property statement for 2025 (default year):
+```bash
+node user-scripts/e9-enfia.js \
+  --params '{"username":"foo","password":"bar"}'
+```
+
+Fetch both property and ENFIA for 2023 and 2024:
+```bash
+node user-scripts/e9-enfia.js \
+  --params '{"username":"foo","password":"bar","years":[2023,2024],"docs":["property","enfia"]}'
+```
+
+Run in headed/debug mode:
+```bash
+PW_HEADLESS=0 DEBUG=1 node user-scripts/e9-enfia.js \
+  --params '{"username":"foo","password":"bar","years":2026}'
+```
+
+Loop over multiple credentials:
+```bash
+node user-scripts/e9-enfia.js --loop '[{"username":"a","password":"x"},{"username":"b","password":"y"}]'
+```
+
+---
+
 ## Generated Script Format
 
 Every saved script is a self-contained Node.js module:
