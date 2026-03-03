@@ -15,12 +15,25 @@ function actionsToScript(actions, options = {}) {
 
   const cleaned = cleanActions(actions);
   const paramBlock = buildParamBlock(params, cleaned);
+  // if we detect a direct "displayDeclarationsList" URL we will turn it into a
+  // computed-period block when generating code
+  const hasDynamicPeriod = cleaned.some(a =>
+    a.type === 'goto' && /displayDeclarationsList\.htm/.test(a.url || '')
+  );
+
   const actionLines = cleaned
-    .map((a, i) => actionToCode(a, params, i))
+    .map((a, i) => actionToCode(a, params, i, hasDynamicPeriod))
     .filter(Boolean);
 
-  const paramDestructure = params.length
-    ? `  const {\n${params.map(p => `    ${p.name} = ${JSON.stringify(p.defaultValue ?? '')}`).join(',\n')},\n  } = params;\n`
+  // ensure tax-period params exist (safe to add even if unused)
+  const extraParams = [
+    { name: 'periodType', defaultValue: 'oneMonth', description: 'oneMonth or threeMonths' },
+    { name: 'month', defaultValue: '', description: '1-12; required if periodType===oneMonth' },
+    { name: 'quarter', defaultValue: '', description: '1-4; required if periodType===threeMonths' },
+  ];
+  const allParams = params.concat(extraParams);
+  const paramDestructure = allParams.length
+    ? `  const {\n${allParams.map(p => `    ${p.name} = ${JSON.stringify(p.defaultValue ?? '')}`).join(',\n')},\n  } = params;\n`
     : '';
 
   return `'use strict';
@@ -64,8 +77,11 @@ async function runLoop(paramsArray = []) {
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args[0] === '--loop' && args[1]) {
-    // Usage: node script.js --loop '[{"paramName":"value1"},{"paramName":"value2"}]' or any JSON array of parameter objects
+    // Usage: node script.js --loop '<json array>'
     runLoop(JSON.parse(args[1])).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+  } else if (args[0] === '--params' && args[1]) {
+    // Usage: node script.js --params '{"username":"alice"}'
+    run(JSON.parse(args[1])).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
   } else {
     run().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
   }
@@ -132,7 +148,7 @@ function buildParamBlock(params, actions) {
 /**
  * Translate a single action to a Playwright code line.
  */
-function actionToCode(action, params = [], index = 0) {
+function actionToCode(action, params = [], index = 0, hasDynamicPeriod = false) {
   // find a parameter by its default value
   const paramByValue = (value) => {
     const hit = params.find(p => p.defaultValue === value);
@@ -161,6 +177,81 @@ function actionToCode(action, params = [], index = 0) {
 
   switch (action.type) {
     case 'goto':
+      if (hasDynamicPeriod && /displayDeclarationsList\.htm/.test(action.url || '')) {
+        // replace recorded link with parameter-driven calculation
+        return `// recorded declaration-list URL replaced with dynamic period logic
+` +
+`    const periodType = params.periodType || 'oneMonth';
+` +
+`    let periodStart = '';
+` +
+`    let periodEnd = '';
+` +
+`    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+` +
+`    if (periodType === 'oneMonth') {
+` +
+`      const m = parseInt(params.month, 10);
+` +
+`      if (!m || m < 1 || m > 12) {
+` +
+`        throw new Error('For oneMonth period you must pass params.month (1-12)');
+` +
+`      }
+` +
+`      const lastDay = new Date(params.year, m, 0).getDate();
+` +
+`      periodStart = \`01/\${pad(m)}/\${params.year}\`;
+` +
+`      periodEnd = \`\${lastDay}/\${pad(m)}/\${params.year}\`;
+` +
+`    } else if (periodType === 'threeMonths') {
+` +
+`      const q = parseInt(params.quarter, 10);
+` +
+`      if (!q || q < 1 || q > 4) {
+` +
+`        throw new Error('For threeMonths period you must pass params.quarter (1-4)');
+` +
+`      }
+` +
+`      const startMonth = 1 + (q - 1) * 3;
+` +
+`      const endMonth = startMonth + 2;
+` +
+`      const lastDay = new Date(params.year, endMonth, 0).getDate();
+` +
+`      periodStart = \`01/\${pad(startMonth)}/\${params.year}\`;
+` +
+`      periodEnd = \`\${lastDay}/\${pad(endMonth)}/\${params.year}\`;
+` +
+`    } else {
+` +
+`      throw new Error('Unsupported periodType: ' + periodType);
+` +
+`    }
+` +
+`    const enc = encodeURIComponent;
+` +
+`    const listUrl =
+` +
+`      \`https://www1.aade.gr/taxisnet/vat/protected/displayDeclarationsList.htm\` +
+` +
+`      \`?declarationType=vatF2&year=\${params.year}\` +
+` +
+`      \`&periodType=\${periodType}\` +
+` +
+`      \`&periodStart=\${enc(periodStart)}\` +
+` +
+`      \`&periodEnd=\${enc(periodEnd)}\` +
+` +
+`      \`&effectivePeriodStart=\${enc(periodStart)}\` +
+` +
+`      \`&effectivePeriodEnd=\${enc(periodEnd)}\`;
+` +
+`    return \`await page.goto(listUrl, { waitUntil: 'domcontentloaded' });\`;
+`;
+      }
       return `await page.goto(${JSON.stringify(action.url)}, { waitUntil: 'domcontentloaded' });`;
 
     case 'click':

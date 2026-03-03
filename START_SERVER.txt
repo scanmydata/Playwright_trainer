@@ -1,1 +1,1 @@
-bash \/workspaces/Playwright_trainer/.devcontainer/startup.sh
+bash /workspaces/Playwright_trainer/.devcontainer/startup.sh

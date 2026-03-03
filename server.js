@@ -35,15 +35,42 @@ const apiLimiter = rateLimit({
 });
 app.use('/api/', apiLimiter);
 
-const SCRIPTS_DIR = path.join(__dirname, 'scripts');
+const SYSTEM_SCRIPTS_DIR = path.join(__dirname, 'system-scripts');
 const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
 
-[SCRIPTS_DIR, DOWNLOADS_DIR].forEach(dir => {
+// user scripts directory (where saved recordings will live going forward)
+const USER_SCRIPTS_DIR = path.join(__dirname, 'user-scripts');
+
+// ensure directories exist
+[USER_SCRIPTS_DIR, SYSTEM_SCRIPTS_DIR, DOWNLOADS_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
+// migrate legacy scripts folder if present
+const LEGACY_DIR = path.join(__dirname, 'scripts');
+if (fs.existsSync(LEGACY_DIR)) {
+  const legacyFiles = fs.readdirSync(LEGACY_DIR).filter(f => f.endsWith('.js'));
+  for (const f of legacyFiles) {
+    const src = path.join(LEGACY_DIR, f);
+    const dst = path.join(USER_SCRIPTS_DIR, f);
+    if (!fs.existsSync(dst)) fs.renameSync(src, dst);
+  }
+  try {
+    const rem = fs.readdirSync(LEGACY_DIR);
+    if (rem.length === 0) fs.rmdirSync(LEGACY_DIR, { recursive: true });
+  } catch (_) {}
+}
+
 const MAX_SCRIPT_NAME_LENGTH = 80;
 const FILL_DEBOUNCE_MS = 400;
+
+function toSafeScriptName(raw) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) return null;
+  return trimmed;
+}
 
 
 
@@ -63,10 +90,10 @@ const state = {
 /** List saved scripts */
 app.get('/api/scripts', (_req, res) => {
   try {
-    const files = fs.readdirSync(SCRIPTS_DIR)
+    const files = fs.readdirSync(USER_SCRIPTS_DIR)
       .filter(f => f.endsWith('.js') && f !== '.gitkeep')
       .map(f => {
-        const stat = fs.statSync(path.join(SCRIPTS_DIR, f));
+        const stat = fs.statSync(path.join(USER_SCRIPTS_DIR, f));
         return { name: f.replace(/\.js$/, ''), file: f, created: stat.mtime };
       })
       .sort((a, b) => b.created - a.created);
@@ -78,14 +105,18 @@ app.get('/api/scripts', (_req, res) => {
 
 /** Get source code of a script */
 app.get('/api/scripts/:name', (req, res) => {
-  const file = path.join(SCRIPTS_DIR, req.params.name + '.js');
+  const safeName = toSafeScriptName(req.params.name);
+  if (!safeName) return res.status(400).json({ error: 'Invalid script name' });
+  const file = path.join(USER_SCRIPTS_DIR, safeName + '.js');
   if (!fs.existsSync(file)) return res.status(404).json({ error: 'Not found' });
   res.type('text/plain').send(fs.readFileSync(file, 'utf8'));
 });
 
 /** Delete a script */
 app.delete('/api/scripts/:name', (req, res) => {
-  const file = path.join(SCRIPTS_DIR, req.params.name + '.js');
+  const safeName = toSafeScriptName(req.params.name);
+  if (!safeName) return res.status(400).json({ error: 'Invalid script name' });
+  const file = path.join(USER_SCRIPTS_DIR, safeName + '.js');
   if (!fs.existsSync(file)) return res.status(404).json({ error: 'Not found' });
   fs.unlinkSync(file);
   res.json({ ok: true });
@@ -94,9 +125,10 @@ app.delete('/api/scripts/:name', (req, res) => {
 /** Run a saved script (single or loop) */
 app.post('/api/run', async (req, res) => {
   const { scriptName, params, loopParams } = req.body;
-  if (!scriptName) return res.status(400).json({ error: 'scriptName required' });
+  const safeName = toSafeScriptName(scriptName);
+  if (!safeName) return res.status(400).json({ error: 'Valid scriptName required' });
 
-  const file = path.join(SCRIPTS_DIR, scriptName + '.js');
+  const file = path.join(USER_SCRIPTS_DIR, safeName + '.js');
   if (!fs.existsSync(file)) return res.status(404).json({ error: 'Script not found' });
 
   res.json({ ok: true, message: 'Script execution started' });
@@ -195,8 +227,14 @@ app.get('/api/vnc-url', (_req, res) => {
   const codespaceName = process.env.CODESPACE_NAME;
   const fwdDomain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
   if (codespaceName && fwdDomain) {
+    const query = new URLSearchParams({
+      autoconnect: '1',
+      resize: 'scale',
+      path: 'websockify',
+      encrypt: '1',
+    });
     return res.json({
-      url: `https://${codespaceName}-6080.${fwdDomain}/vnc.html?autoconnect=1&resize=scale`,
+      url: `https://${codespaceName}-6080.${fwdDomain}/vnc.html?${query.toString()}`,
     });
   }
   res.json({ url: null }); // client will derive it from window.location
@@ -446,7 +484,7 @@ io.on('connection', (socket) => {
 
     const safeName = name.replace(/[^a-z0-9_\-]/gi, '_').substring(0, MAX_SCRIPT_NAME_LENGTH);
     const scriptSrc = actionsToScript(state.actions, { name, params: params || [] });
-    const filePath = path.join(SCRIPTS_DIR, safeName + '.js');
+    const filePath = path.join(USER_SCRIPTS_DIR, safeName + '.js');
 
     try {
       fs.writeFileSync(filePath, scriptSrc, 'utf8');

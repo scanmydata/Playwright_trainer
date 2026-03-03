@@ -99,4 +99,4 @@ DISPLAY="${DISPLAY}" nohup node server.js >/dev/null 2>&1 &
 
 # write a handy reminder command to a text file in the workspace root
 # path uses SCRIPT_DIR to stay correct
-echo "bash \\$PWD/.devcontainer/startup.sh" > "${SCRIPT_DIR}/../START_SERVER.txt"
+echo "bash ${WORKSPACE_ROOT}/.devcontainer/startup.sh" > "${SCRIPT_DIR}/../START_SERVER.txt"
