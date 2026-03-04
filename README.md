@@ -153,9 +153,16 @@ The `user-scripts/e1-e2-e3.js` script downloads E1/E2/E3 income tax declarations
 |-----------|------|---------|-------------|
 | `username` | string | `""` | TAXISnet username (required) |
 | `password` | string | `""` | TAXISnet password (required) |
-| `years` | number or array | `[2025]` | Year(s) to download. Single year: `2025`, multiple: `[2023,2024,2025]` |
-| `docs` | string[] | auto-discovered | Document button names to download. Use shortcuts: `"E1"`, `"E2_YPO"`, `"E2_SYZ"`, `"E3"`, `"EKKATH"`, `"EKKATH_SYZ"` or full button names like `"PBE1_PRINT_PDF"`, `"PB_EKKATH_PDF"` |
+| `years` | number or array | `[2025]` | Year(s) to download. A single year (e.g. `2025`) or an array of years. The script visits the server’s year‑specific page before scraping buttons, so multiple years result in multiple navigations. |
+| `docs` | string[] | auto-discovered | Which documents to fetch. Defaults to every enabled download button on the page except summaries/myDATA/amendments/internal tables. Accepts shortcut codes (`"E1"`, `"E2_YPO"`, `"E2_SYZ"`, `"E3"`, `"E3_MYDATA"`, `"EKKATH"`, etc.) or raw button names such as `"PBE1_PRINT_PDF"`, `"E3MY_PRINT_PDF"`, `"PBMod2025"`. Specify exactly what you want – wildcards aren’t supported. |
 | `choices` | object | `{}` | Optional: pre-select dropdown values, e.g. `{"YEAR":"2025"}` |
+
+The **`docs`** and **`years`** parameters let you narrow downloads:
+
+- `years` controls which tax year page is loaded; specify a single year or an array to repeat for multiple years.
+- `docs` restricts which buttons are clicked. If omitted the script grabs all enabled PDF links, but you can provide an explicit list when you only want, e.g., `E1` for 2024 and `E3` for 2025 by running twice or via `--loop`.
+
+Examples later in this README show various combinations.
 
 ### Return Object (result)
 
@@ -174,39 +181,47 @@ The script returns an object with the following fields:
 - **`PW_HEADLESS=0`** : Run in headed mode (visible browser window) — useful for debugging
 - **`PW_HEADLESS=1`** : Run in headless mode (default)
 - **`DEBUG=1`** : Enable verbose debug output (prints dropdown lists, discovered buttons, popup events, etc.)
+- **`SLOW_MO=<ms>`** : Add a delay (milliseconds) to every Playwright action/navigation. Defaults to **400 ms** when not set. Pass a number like `200` or `0` to override (0 disables slow‑motion).
 
 ### Usage Examples
 
 #### Basic: Download E1 and EKKATH for 2025 (default year)
 ```bash
 node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user4536951550","password":"antonis38"}'
+  --params '{"username":"<your_username>","password":"<your_password>"}'
 ```
 
 #### Specific year with selected documents
 ```bash
 node user-scripts/e1-e2-e3.js \
-  --params '{"username":"user4536951550","password":"antonis38",\
+  --params '{"username":"<your_username>","password":"<your_password>",\
 "years":2025,"docs":["E1","EKKATH"]}'
+```
+
+#### Including E3-myDATA and amendment forms
+```bash
+node user-scripts/e1-e2-e3.js \
+  --params '{"username":"<your_username>","password":"<your_password>",\
+"years":2025,"docs":["E3_MYDATA","MOD"]}'
 ```
 
 #### Headed mode with debug output
 ```bash
 PW_HEADLESS=0 DEBUG=1 node user-scripts/e1-e2-e3.js \
-  --params '{"username":"youruser","password":"yourpass","years":2025}'
+  --params '{"username":"<your_username>","password":"<your_password>","years":2025}'
 ```
 
 #### Multiple years
 ```bash
 node user-scripts/e1-e2-e3.js \
-  --params '{"username":"youruser","password":"yourpass",\
+  --params '{"username":"<your_username>","password":"<your_password>",\
 "years":[2023,2024,2025],"docs":["E1","EKKATH"]}'
 ```
 
 #### Specify dropdown selections explicitly
 ```bash
 node user-scripts/e1-e2-e3.js \
-  --params '{"username":"youruser","password":"yourpass",\
+  --params '{"username":"<your_username>","password":"<your_password>",\
 "years":2025,"docs":["E1","EKKATH"],"choices":{"YEAR":"2025"}}'
 ```
 
@@ -221,8 +236,11 @@ node user-scripts/e1-e2-e3.js \
 
 1. **Auto-discovery**: If you don't specify `docs`, the script scans the page for enabled document buttons and automatically filters out:
    - ΣΥΝΟΨΗ (summary)
-   - myDATA buttons
+   - myDATA buttons (e.g. the "Ε3 - myDATA" submission form)
    - Τροποποιητική (amendment) buttons
+   - ΕΣΩΤΕΡΙΚΟΙ ΠΙΝΑΚΕΣ / "internal tables" (button name starts with `PB_PRINT_SUBTABLES`)
+   
+   To download one of the filtered items you must pass its name explicitly via the `docs` parameter (see shortcuts above).
 
 2. **Smart download**: When clicking a document button opens a popup/new tab with a PDF viewer, the script:
    - Detects the popup
@@ -316,6 +334,29 @@ DISPLAY=:99 node server.js
 Open `http://localhost:3000` in your browser.
 
 ---
+
+
+## Additional scripts
+
+Aside from the detailed examples below, the `user-scripts/` directory contains a
+number of other recorded and utility scripts.  Most of them follow the same
+`run(params)`/`runLoop(paramsArray)` pattern and accept credential, year and
+document parameters similar to the examples above.  Reading the comments at
+the top of each file is the easiest way to understand what it does and which
+arguments it supports:
+
+```
+$ ls user-scripts
+cleanup_quarter_duplicates.js  e9-enfia.js     start2.js  test_params.js
+compare_pdf_texts.js           enarxi-aade.js  suppl.js   VAT-KEEP.js
+e1-e2-e3.js                    jsdoc_test.js   test3.js
+```
+
+For instance, `enarxi-aade.js` automates the AADE "έναρξη" application, and
+`VAT-KEEP.js` downloads VAT-KEEP forms; `cleanup_quarter_duplicates.js` is a
+local helper that adjusts previously-saved downloads, etc.  The exact behaviour
+(and any extra command‑line flags) are documented in the header comments of each
+file.
 
 ## Example: E9/ENFIA script
 ...

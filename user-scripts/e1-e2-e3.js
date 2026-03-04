@@ -14,8 +14,8 @@ const fs = require('fs');
  * @param {number|number[]} [params.years=[2025]] - Year(s) to download (default: 2025)
  * @param {string[]} [params.docs] - Document button names to download.
  *   If omitted, auto-discovers enabled buttons (excluding ΣΥΝΟΨΗ, myDATA, Τροποποιητικ).
- *   Supported shortcuts: 'E1', 'E2_YPO', 'E2_SYZ', 'E3', 'EKKATH', 'EKKATH_SYZ'
- *   Or use full button names like 'PBE1_PRINT_PDF', 'PB_EKKATH_PDF', etc.
+ *   Supported shortcuts: 'E1', 'E2_YPO', 'E2_SYZ', 'E3', 'E3_MYDATA', 'EKKATH', 'EKKATH_SYZ', 'MOD' (modification form)
+ *   Or use full button/input names like 'PBE1_PRINT_PDF', 'PB_EKKATH_PDF', 'E3MY_PRINT_PDF', 'PBMod2025', etc.
  * @param {Object.<string,string>} [params.choices] - Optional: pre-select dropdown values (e.g. {"YEAR":"2025"})
  * 
  * @returns {Object} result - Download result object
@@ -34,6 +34,12 @@ const fs = require('fs');
 async function run(params = {}) {
   const debug = process.env.DEBUG === '1';
   if (debug) console.log('[run] debug enabled');
+  // allow slower navigation → helpful when portal is sluggish
+  // default to 400ms if nothing specified to give the portal breathing room
+  const slowMo = process.env.SLOW_MO !== undefined
+    ? parseInt(process.env.SLOW_MO, 10) || 0
+    : 600;
+  if (debug) console.log('[run] slowMo set to', slowMo, 'ms');
   // supported params:
   // { username, password, years?, docs?, choices? }
   // - years: array or single year to iterate (defaults 2025)
@@ -56,13 +62,14 @@ async function run(params = {}) {
   };
 
   const headless = process.env.PW_HEADLESS === '1';
-  const browser = await chromium.launch({ headless });
+  const browser = await chromium.launch({ headless, slowMo });
   const context = await browser.newContext({ acceptDownloads: true });
   let page = await context.newPage();
 
   try {
     // login page
     await page.goto("https://www.aade.gr/dilosi-forologias-eisodimatos-fp-e1-e2-e3", { waitUntil: 'domcontentloaded' });
+    if (slowMo) await page.waitForTimeout(slowMo);
     
     // login button opens new tab
     let loginPage = page;
@@ -135,6 +142,7 @@ async function run(params = {}) {
       // if year parameter is needed, the page URL is already set via year${year}/income/e1/index.jsp
       // but the buttons appear at login.done after the entry link is clicked
       await page.goto(`https://www1.aade.gr/webtax/incomefp/login.done`, { waitUntil: 'domcontentloaded' });
+      if (slowMo) await page.waitForTimeout(slowMo);
       
       // wait longer for dynamic content + JavaScript to execute
       await page.waitForLoadState('networkidle').catch(() => {});
@@ -230,7 +238,10 @@ async function run(params = {}) {
         // exclude summary and other non-download buttons
         docsToUse = buttonList
           .filter(b => !b.disabled)
-          .filter(b => !/ΣΥΝΟΨΗ|myDATA|Τροποποιητικ/i.test(b.text) && b.name)
+          // filter out summary / myDATA / amendment / internal-tables when auto-discovering
+          // explicit docs still work if you pass their name
+          .filter(b => !/ΣΥΝΟΨΗ|myDATA|Τροποποιητικ|ΕΣΩΤΕΡΙΚΟΙ ΠΙΝΑΚΕΣ/i.test(b.text)
+                     && b.name && !/^PB_PRINT_SUBTABLES/i.test(b.name))
           .map(b => b.name);
         if (debug) console.log('[run] default docs list ->', docsToUse);
       }
@@ -258,8 +269,19 @@ async function run(params = {}) {
           case 'E3':
             selector = '[name="PBE3_PRINT_PDF"]';
             break;
+          case 'E3_MYDATA':
+          case 'E3MY':
+          case 'E3MYDATA':
+            selector = '[name="E3MY_PRINT_PDF"]';
+            break;
+          case 'MOD':
+          case 'PBMod2025':
+          case 'MOD2025':
+            // modification/amendment form (input element)
+            selector = '[name="PBMod2025"]';
+            break;
           default:
-            // fallback: assume doc is already a button name attribute
+            // fallback: assume doc is already a button/input name attribute
             selector = `[name="${doc}"]`;
             console.log('[run] using doc as direct button name:', doc);
         }
@@ -344,7 +366,9 @@ async function run(params = {}) {
 
     // logout sequence mimicking original
     await page.click("text=\"Αποσύνδεση\"").catch(() => {});
+    if (slowMo) await page.waitForTimeout(slowMo);
     await page.goto("https://www1.aade.gr/webtax/incomefp/logout.do", { waitUntil: 'domcontentloaded' }).catch(() => {});
+    if (slowMo) await page.waitForTimeout(slowMo);
     await page.goto("https://login.gsis.gr/oam/server/osso_logout?p_done_url=https://www1.aade.gr:443/taxisnet/mytaxisnet", { waitUntil: 'domcontentloaded' }).catch(() => {});
   } catch (err) {
     result.error = err.message || String(err);
