@@ -318,7 +318,7 @@ Open `http://localhost:3000` in your browser.
 ---
 
 ## Example: E9/ENFIA script
-
+...
 The `user-scripts/e9-enfia.js` script automates downloading the
 Ε9/ENFIA property declaration and periodic statements from the
 AADE‑ETAK portal.  It accepts credentials plus optional year(s) and

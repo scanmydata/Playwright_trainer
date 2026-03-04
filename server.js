@@ -424,9 +424,7 @@ io.on('connection', (socket) => {
 
       // Expose binding so injected script can push actions to Node
       await state.context.exposeBinding('__recordAction', (_source, action) => {
-        state.actions.push(action);
-        io.emit('actionRecorded', action);
-        io.emit('stateUpdate', { isRecording: true, actionCount: state.actions.length });
+        recordAction(action);
       });
 
       // Inject recorder into every page / frame
@@ -443,8 +441,7 @@ io.on('connection', (socket) => {
 
       if (startUrl && startUrl !== 'about:blank') {
         await state.page.goto(startUrl, { waitUntil: 'domcontentloaded' });
-        state.actions.push({ type: 'goto', url: startUrl, ts: Date.now() });
-        io.emit('actionRecorded', { type: 'goto', url: startUrl });
+        recordAction({ type: 'goto', url: startUrl, ts: Date.now() });
       }
 
       socket.emit('recordingStarted', { sessionId: state.sessionId });
@@ -522,9 +519,7 @@ function attachPageListeners(page) {
     const url = frame.url();
     if (!url || url === 'about:blank') return;
 
-    state.actions.push({ type: 'goto', url, ts: Date.now() });
-    io.emit('actionRecorded', { type: 'goto', url });
-    io.emit('stateUpdate', { isRecording: state.isRecording, actionCount: state.actions.length });
+    recordAction({ type: 'goto', url, ts: Date.now() });
   });
 
   page.on('download', async (download) => {
@@ -532,9 +527,30 @@ function attachPageListeners(page) {
     const dest = path.join(DOWNLOADS_DIR, filename);
     await download.saveAs(dest).catch(() => {});
     const action = { type: 'download', filename, dest, ts: Date.now() };
-    state.actions.push(action);
-    io.emit('actionRecorded', action);
+    recordAction(action);
     io.emit('log', { msg: `Download captured: ${filename}` });
+  });
+}
+
+function recordAction(action) {
+  const normalized = {
+    ...action,
+    ts: typeof action?.ts === 'number' ? action.ts : Date.now(),
+  };
+
+  const prev = state.actions.length ? state.actions[state.actions.length - 1] : null;
+  state.actions.push(normalized);
+
+  const step = state.actions.length;
+  const prevTs = prev && typeof prev.ts === 'number' ? prev.ts : null;
+  const paceMs = prevTs !== null ? Math.max(0, normalized.ts - prevTs) : 0;
+  const details = normalized.selector || normalized.url || normalized.filename || '';
+  const compactDetails = String(details).replace(/\s+/g, ' ').trim().slice(0, 80);
+
+  io.emit('actionRecorded', normalized);
+  io.emit('stateUpdate', { isRecording: state.isRecording, actionCount: state.actions.length });
+  io.emit('log', {
+    msg: `[recorder] step ${step} | pace ${paceMs}ms | ${normalized.type}${compactDetails ? ` | ${compactDetails}` : ''}`,
   });
 }
 
