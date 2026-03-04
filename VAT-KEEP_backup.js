@@ -27,6 +27,28 @@ async function run(params = {}) {
     year = new Date().getFullYear(),
   } = params;
 
+  // debugging helpers
+  const debug = process.env.DEBUG === '1';
+  const slowMo = process.env.SLOW_MO !== undefined
+    ? parseInt(process.env.SLOW_MO, 10) || 0
+    : 600;
+  const downloadsDir = path.resolve(__dirname, 'downloads');
+
+  // helpers
+  async function safeClick(selector, options = {}) {
+    await page.waitForSelector(selector, { state: 'visible', timeout: 15000 });
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeClick: no element ${selector}`);
+    await el.click(options);
+    await page.waitForTimeout(slowMo);
+  }
+  async function safeFill(selector, value, options = {}) {
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeFill: no element ${selector}`);
+    await el.fill(value, options);
+    await page.waitForTimeout(slowMo);
+  }
+
   const result = {
     noOblig: false,
     downloaded: false,
@@ -36,8 +58,8 @@ async function run(params = {}) {
   };
 
   const headless = process.env.PW_HEADLESS === '1';
-  const browser = await chromium.launch({ headless });
-  const context = await browser.newContext({ acceptDownloads: true });
+  const browser = await chromium.launch({ headless, slowMo });
+  const context = await browser.newContext({ acceptDownloads: true, downloadsPath: downloadsDir });
   const page = await context.newPage();
   await context.clearCookies();
   await context.clearPermissions();
@@ -181,7 +203,7 @@ async function run(params = {}) {
       if (!normalizedText) return null;
       if (seenTextToPath.has(normalizedText)) return seenTextToPath.get(normalizedText);
       try {
-        const dlDir = path.join(__dirname, '..', 'downloads');
+        const dlDir = downloadsDir;
         if (!fs.existsSync(dlDir)) return null;
         const files = fs.readdirSync(dlDir).filter(f => f.endsWith('.pdf'));
         for (const f of files) {
@@ -201,7 +223,7 @@ async function run(params = {}) {
 
         function findExistingFileByHash(hash, periodKey) {
           try {
-            const dlDir = path.join(__dirname, '..', 'downloads');
+            const dlDir = downloadsDir;
             if (!fs.existsSync(dlDir)) return null;
             const files = fs.readdirSync(dlDir).filter(f => f.endsWith('.pdf'));
             for (const f of files) {
@@ -232,7 +254,7 @@ async function run(params = {}) {
             const existingByText = await findExistingFileByText(txt);
             if (existingByText) { seenTextToPath.set(txt, existingByText); return { path: existingByText, existed: true }; }
           }
-          const dlPathLocal = path.join(__dirname, '..', 'downloads', `viewPdf-${fileLabelLocal}.pdf`);
+          const dlPathLocal = path.join(downloadsDir, `viewPdf-${fileLabelLocal}.pdf`);
           fs.mkdirSync(path.dirname(dlPathLocal), { recursive: true });
           fs.writeFileSync(dlPathLocal, buffer);
           try { seenHashToPath.set(hash, dlPathLocal); if (txt) seenTextToPath.set(txt, dlPathLocal); if (isQuarterLocal) seenQuarterToPath.set(periodKeyLocal, dlPathLocal); if (popupPeriodKeyLocal && String(popupPeriodKeyLocal).startsWith('quarterly-')) seenQuarterToPath.set(popupPeriodKeyLocal, dlPathLocal); } catch (e) {}
@@ -251,7 +273,7 @@ async function run(params = {}) {
     function findExistingFileByDecl(declNum) {
       if (!declNum) return null;
       try {
-        const dlDir = path.join(__dirname, '..', 'downloads');
+        const dlDir = downloadsDir;
         if (!fs.existsSync(dlDir)) return null;
         const files = fs.readdirSync(dlDir).filter(f => f.endsWith('.pdf'));
         const re = new RegExp(`(?:\\b|-)${declNum}(?:\\b|-)`);
@@ -371,7 +393,9 @@ async function run(params = {}) {
     }
 
     // helper to process one period value and return its result object
-    async function processPeriod(val) {
+    // `attempt` is used to retry once when a period seems empty but might
+    // surface on a second try (the portal can be flaky).
+    async function processPeriod(val, attempt = 1) {
       // human-readable period label for logging
       const isRangeMonth = typeof val === 'object' && val.year && val.month;
       const label = isRangeMonth
@@ -693,7 +717,7 @@ async function run(params = {}) {
             return res;
           }
         }
-        const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${fileLabel}.pdf`);
+        const dlPath = path.join(downloadsDir, `viewPdf-${fileLabel}.pdf`);
         fs.mkdirSync(path.dirname(dlPath), { recursive: true });
         if (tempBuf) {
           fs.writeFileSync(dlPath, tempBuf);
@@ -750,7 +774,7 @@ async function run(params = {}) {
                 return res;
               }
             }
-            const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${fileLabel}.pdf`);
+            const dlPath = path.join(downloadsDir, `viewPdf-${fileLabel}.pdf`);
             fs.mkdirSync(path.dirname(dlPath), { recursive: true });
             if (tempBuf) fs.writeFileSync(dlPath, tempBuf); else await download.saveAs(dlPath);
             try {
@@ -767,11 +791,36 @@ async function run(params = {}) {
             seenDownloadKeys.add(dedupeKey);
             return res;
         } else {
-          throw new Error('Could not determine PDF URL or download action');
+          // no URL and no download event – may be portal hiccup. retry once.
+          console.log('[run] no pdf URL or download event for', label, 'attempt', attempt);
+          if (attempt < 2) {
+            console.log('[run] retrying period', label, 'after reload');
+            await page.goto(listUrl, { waitUntil: 'domcontentloaded' });
+            // ensure session still valid
+            if (await page.locator('#username').count()) {
+              throw new Error('Session expired when retrying period ' + label);
+            }
+            return processPeriod(val, attempt + 1);
+          }
+          res.noOblig = true;
+          return res;
         }
       }
+      if (!pdfUrl) {
+        // should not reach here but guard anyway
+        res.noOblig = true;
+        return res;
+      }
       const response = await context.request.get(pdfUrl);
-      const buffer = await response.body();
+      let buffer;
+      try {
+        buffer = await response.body();
+      } catch (e) {
+        console.warn('[run] failed to read response body:', e.message || e);
+        // treat as non-existent PDF
+        res.noOblig = true;
+        return res;
+      }
       const hash = crypto.createHash('sha1').update(buffer).digest('hex');
       if (seenHashToPath.has(hash)) {
         const existing = seenHashToPath.get(hash);
@@ -805,7 +854,7 @@ async function run(params = {}) {
           }
         }
       } catch (e) {}
-      const dlPath = path.join(__dirname, '..', 'downloads', `viewPdf-${fileLabel}.pdf`);
+      const dlPath = path.join(downloadsDir, `viewPdf-${fileLabel}.pdf`);
       fs.mkdirSync(path.dirname(dlPath), { recursive: true });
       const saveResult = await trySaveBuffer(buffer, fileLabel, periodKey, popupPeriodKey, dedupeKey, isQuarter);
       if (saveResult && saveResult.existed) {

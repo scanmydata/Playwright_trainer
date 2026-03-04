@@ -40,6 +40,24 @@ async function run(params = {}) {
     ? parseInt(process.env.SLOW_MO, 10) || 0
     : 600;
   if (debug) console.log('[run] slowMo set to', slowMo, 'ms');
+
+  // where downloaded PDFs will live (project-root/downloads)
+  const downloadsDir = path.resolve(__dirname, 'downloads');
+
+  // simple helpers for reliable interaction
+  async function safeClick(selector, options = {}) {
+    await page.waitForSelector(selector, { state: 'visible', timeout: 15000 });
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeClick: no element ${selector}`);
+    await el.click(options);
+    await page.waitForTimeout(slowMo);
+  }
+  async function safeFill(selector, value, options = {}) {
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeFill: no element ${selector}`);
+    await el.fill(value, options);
+    await page.waitForTimeout(slowMo);
+  }
   // supported params:
   // { username, password, years?, docs?, choices? }
   // - years: array or single year to iterate (defaults 2025)
@@ -63,7 +81,7 @@ async function run(params = {}) {
 
   const headless = process.env.PW_HEADLESS === '1';
   const browser = await chromium.launch({ headless, slowMo });
-  const context = await browser.newContext({ acceptDownloads: true });
+  const context = await browser.newContext({ acceptDownloads: true, downloadsPath: downloadsDir });
   let page = await context.newPage();
 
   try {
@@ -312,7 +330,7 @@ async function run(params = {}) {
 
         const downloadPage = targetPage;
         const filename = `report-${doc}-${year}.pdf`;
-        const dlPath = path.join(__dirname, '..', 'downloads', filename);
+        const dlPath = path.join(downloadsDir, filename);
         fs.mkdirSync(path.dirname(dlPath), { recursive: true });
 
         // simplified download: rely on network response capture

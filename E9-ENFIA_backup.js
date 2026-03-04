@@ -21,6 +21,27 @@ async function run(params = {}) {
   const debug = process.env.DEBUG === '1';
   if (debug) console.log('[run] debug enabled');
 
+  const slowMo = process.env.SLOW_MO !== undefined
+    ? parseInt(process.env.SLOW_MO, 10) || 0
+    : 600;
+  if (debug) console.log('[run] slowMo set to', slowMo);
+
+  const downloadsDir = path.resolve(__dirname, 'downloads');
+
+  async function safeClick(selector, options = {}) {
+    await page.waitForSelector(selector, { state: 'visible', timeout: 15000 });
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeClick: selector not found: ${selector}`);
+    await el.click(options);
+    await page.waitForTimeout(slowMo);
+  }
+  async function safeFill(selector, value, options = {}) {
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeFill: selector not found: ${selector}`);
+    await el.fill(value, options);
+    await page.waitForTimeout(slowMo);
+  }
+
   const {
     username = "",
     password = "",
@@ -45,8 +66,8 @@ async function run(params = {}) {
     error: null,
   };
 
-  const browser = await chromium.launch({ headless: process.env.PW_HEADLESS === '1' });
-  const context = await browser.newContext({ acceptDownloads: true });
+  const browser = await chromium.launch({ headless: process.env.PW_HEADLESS === '1', slowMo });
+  const context = await browser.newContext({ acceptDownloads: true, downloadsPath: downloadsDir });
   let page = await context.newPage();
 
   try {
@@ -147,10 +168,13 @@ async function run(params = {}) {
               clickTarget.click(clickArg).catch(() => null),
             ]);
             if (download) {
-              const dlPath = path.join(__dirname, '..', 'downloads', filename);
+              const dlPath = path.join(downloadsDir, filename);
               fs.mkdirSync(path.dirname(dlPath), { recursive: true });
               await download.saveAs(dlPath);
-              console.log('[download] saved to', dlPath);
+              if (!fs.existsSync(dlPath) || fs.statSync(dlPath).size === 0) {
+                throw new Error(`downloaded file missing or empty: ${dlPath}`);
+              }
+              console.log('[download] saved to', path.relative(process.cwd(), dlPath));
               res.downloaded = true;
               res.downloadPath = dlPath;
             } else {

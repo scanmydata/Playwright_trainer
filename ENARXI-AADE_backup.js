@@ -14,6 +14,27 @@ async function run(params = {}) {
   const debug = process.env.DEBUG === '1';
   const pace = process.env.PACE ? parseInt(process.env.PACE, 10) : 0;
 
+  const slowMo = process.env.SLOW_MO !== undefined
+    ? parseInt(process.env.SLOW_MO, 10) || 0
+    : pace || 600;
+  if (debug) console.log('[run] slowMo set to', slowMo);
+
+  const downloadsDir = path.resolve(__dirname, 'downloads');
+
+  async function safeClick(selector, options = {}) {
+    await page.waitForSelector(selector, { state: 'visible', timeout: 15000 });
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeClick: selector not found: ${selector}`);
+    await el.click(options);
+    await page.waitForTimeout(slowMo);
+  }
+  async function safeFill(selector, value, options = {}) {
+    const el = page.locator(selector);
+    if (!(await el.count())) throw new Error(`safeFill: selector not found: ${selector}`);
+    await el.fill(value, options);
+    await page.waitForTimeout(slowMo);
+  }
+
   const {
     username = "",
     password = "",
@@ -36,8 +57,8 @@ async function run(params = {}) {
   let browser;
   let page;
   try {
-    browser = await chromium.launch({ headless: process.env.PW_HEADLESS !== '0', slowMo: pace });
-    const context = await browser.newContext({ acceptDownloads: true, downloadsPath: path.join(__dirname, '..', 'downloads') });
+    browser = await chromium.launch({ headless: process.env.PW_HEADLESS !== '0', slowMo });
+    const context = await browser.newContext({ acceptDownloads: true, downloadsPath: downloadsDir });
     // log download events for visibility
     context.on('download', dl => {
       console.log('[event] download event fired, suggested filename', dl.suggestedFilename());
@@ -67,7 +88,7 @@ async function run(params = {}) {
             }
             if (!fname) fname = `early-${Date.now()}.pdf`;
             if (!/\.pdf$/i.test(fname)) fname = `${fname}.pdf`;
-            const filePath = path.join(__dirname, '..', 'downloads', fname);
+            const filePath = path.join(downloadsDir, fname);
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, buf);
             console.log('[auto-response] saved pdf from network', filePath);
@@ -109,7 +130,7 @@ async function run(params = {}) {
     }
     async function dumpDiagnostics(tag) {
       const stamp = Date.now();
-      const baseDir = path.join(__dirname, '..', 'downloads', 'debug');
+      const baseDir = path.join(downloadsDir, 'debug');
       fs.mkdirSync(baseDir, { recursive: true });
       const pngPath = path.join(baseDir, `${tag}-${stamp}.png`);
       const htmlPath = path.join(baseDir, `${tag}-${stamp}.html`);
@@ -122,7 +143,7 @@ async function run(params = {}) {
     // helper used throughout the script for saving a Playwright Download object
     async function saveDownload(dl) {
       try {
-        const filePath = path.join(__dirname, '..', 'downloads', `ektiposi-${Date.now()}.pdf`);
+        const filePath = path.join(downloadsDir, `ektiposi-${Date.now()}.pdf`);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         await dl.saveAs(filePath);
         console.log('[download] saved via manual click to', filePath);
@@ -345,7 +366,7 @@ async function run(params = {}) {
 
     async function tryDownload(p) {
       const filename = `ektiposi-${Date.now()}.pdf`;
-      const dlPath = path.join(__dirname, '..', 'downloads', filename);
+      const dlPath = path.join(downloadsDir, filename);
       fs.mkdirSync(path.dirname(dlPath), { recursive: true });
       let saved = false;
 
@@ -552,12 +573,15 @@ async function run(params = {}) {
       step(() => downloadPage.locator('[download], button[download], a:has-text("Download"), a:has-text("Λήψη")').first().click().catch(() => {})),
     ]);
     if (dl1) {
-      const filePath = path.join(__dirname, '..', 'downloads', `ektiposi-${Date.now()}.pdf`);
+      const filePath = path.join(downloadsDir, `ektiposi-${Date.now()}.pdf`);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       await dl1.saveAs(filePath);
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+        throw new Error(`downloaded file missing or empty: ${filePath}`);
+      }
       result.downloaded = true;
       result.downloadPath = filePath;
-      console.log('[download] saved to', filePath);
+      console.log('[download] saved to', path.relative(process.cwd(), filePath));
     }
     if (!result.downloaded) {
       const firstPath = await tryDownload(downloadPage);
@@ -571,9 +595,12 @@ async function run(params = {}) {
       await step(() => downloadPage.keyboard.press('Control+P').catch(() => {}));
       try {
         const pdfBuf = await downloadPage.pdf({ format: 'A4' });
-        const filePath = path.join(__dirname, '..', 'downloads', `printout-${Date.now()}.pdf`);
+        const filePath = path.join(downloadsDir, `printout-${Date.now()}.pdf`);
         fs.writeFileSync(filePath, pdfBuf);
-        console.log('[download] saved via page.pdf to', filePath);
+        if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+          throw new Error(`file.pdf export failed: ${filePath}`);
+        }
+        console.log('[download] saved via page.pdf to', path.relative(process.cwd(), filePath));
         result.downloaded = true;
         result.downloadPath = filePath;
       } catch {}

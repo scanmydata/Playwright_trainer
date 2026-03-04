@@ -45,28 +45,59 @@ async function run(params = {}) {
     error: null,
   };
 
-  const browser = await chromium.launch({ headless: process.env.PW_HEADLESS === '1' });
+  // determine a consistent downloads directory within the repository
+  // so users can easily inspect it from the project root.
+  // __dirname is user-scripts; go up one level to project root.
+  const downloadsDir = path.resolve(__dirname, '..', 'downloads');
+
+  // allow slowMo to give the portal time to react to each click/input
+  // default to 600ms if not specified by environment
+  const slowMo = process.env.SLOW_MO !== undefined
+    ? parseInt(process.env.SLOW_MO, 10) || 0
+    : 600;
+
+  const browser = await chromium.launch({ headless: process.env.PW_HEADLESS === '1', slowMo });
   const context = await browser.newContext({ acceptDownloads: true });
   let page = await context.newPage();
 
   try {
+    // multipage helpers that validate selectors and pause after acting
+    let currentPage = page;
+    async function safeClick(selector, options = {}) {
+      // wait for the element to appear in the DOM
+      await currentPage.waitForSelector(selector, { state: 'visible', timeout: 15000 });
+      const el = currentPage.locator(selector);
+      if (!(await el.count())) {
+        throw new Error(`safeClick: selector not found after waiting: ${selector}`);
+      }
+      await el.click(options);
+      await currentPage.waitForTimeout(slowMo);
+    }
+    async function safeFill(selector, value, options = {}) {
+      const el = currentPage.locator(selector);
+      if (!(await el.count())) {
+        throw new Error(`safeFill: selector not found: ${selector}`);
+      }
+      await el.fill(value, options);
+      await currentPage.waitForTimeout(slowMo);
+    }
+
     // login
     await page.goto("https://www.aade.gr/dilosi-e9-enfia", { waitUntil: 'domcontentloaded' });
     // new tab login link
     const [loginTab] = await Promise.all([
       context.waitForEvent('page').catch(() => null),
-      page.click("[aria-label=\"Είσοδος στην εφαρμογή - ανοίξτε σε νέα καρτέλα\"]"),
+      safeClick("[aria-label=\"Είσοδος στην εφαρμογή - ανοίξτε σε νέα καρτέλα\"]"),
     ]);
     const loginPage = loginTab || page;
+    currentPage = loginPage;
     if (debug) console.log('[run] filling credentials');
     if (!username || !password) {
-      console.warn('[run] credentials missing');
-      const res = { ...resultTemplate, error: 'missing credentials' };
-      return res;
+      throw new Error('missing credentials');
     }
-    await loginPage.fill("#username", username);
-    await loginPage.fill("#password", password);
-    await loginPage.click("[name=\"btn_login\"]");
+    await safeFill("#username", username);
+    await safeFill("#password", password);
+    await safeClick("[name=\"btn_login\"]");
     await loginPage.waitForLoadState('load').catch(() => {});
     if (await loginPage.locator('#username').count()) {
       const errText = await loginPage.evaluate(() => {
@@ -147,15 +178,19 @@ async function run(params = {}) {
               clickTarget.click(clickArg).catch(() => null),
             ]);
             if (download) {
-              const dlPath = path.join(__dirname, '..', 'downloads', filename);
+              const dlPath = path.join(downloadsDir, filename);
               fs.mkdirSync(path.dirname(dlPath), { recursive: true });
               await download.saveAs(dlPath);
-              console.log('[download] saved to', dlPath);
+              // verify the file really exists and is non-empty
+              if (!fs.existsSync(dlPath) || fs.statSync(dlPath).size === 0) {
+                throw new Error(`downloaded file missing or empty: ${dlPath}`);
+              }
+              // log relative to workspace root for readability
+              console.log('[download] saved to', path.relative(process.cwd(), dlPath));
               res.downloaded = true;
               res.downloadPath = dlPath;
             } else {
-              res.noOblig = true;
-              if (debug) console.log('[run] no download event for', doc, year);
+              throw new Error(`expected download event for ${doc} ${year} but none fired`);
             }
           }
         } catch (err) {
