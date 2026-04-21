@@ -120,7 +120,6 @@ PW_HEADLESS=0 DEBUG=1 node user-scripts/CC.js --params '{"username":"foo","passw
 > generic download event. The file is written to `downloads/viewPdf.pdf`
 > (timestamp appended when running multiple times).  This approach avoids
 > corrupted HTML placeholder files when the PDF viewer is rendered inline.
-```
 
 ### Loop run (from UI)
 When you select a saved script from the sidebar the **Params** field will be automatically populated with any
@@ -335,7 +334,6 @@ Open `http://localhost:3000` in your browser.
 
 ---
 
-
 ## Additional scripts
 
 Aside from the detailed examples below, the `user-scripts/` directory contains a
@@ -431,3 +429,26 @@ module.exports = { run, runLoop };
 ```
 
 Scripts can be imported into any other Node.js project or run directly from the CLI.
+
+## How to Start the Project
+
+To start the Playwright Trainer UI and noVNC services, follow these steps:
+
+1. Ensure all dependencies are installed:
+   ```bash
+   npm install
+   sudo apt-get install -y xvfb xauth
+   ```
+
+2. Start the server and services:
+   ```bash
+   npm start
+   ```
+
+This will:
+- Launch the Playwright Trainer UI at [http://localhost:3000](http://localhost:3000).
+- Enable noVNC at [http://localhost:6080/vnc.html](http://localhost:6080/vnc.html).
+
+### Troubleshooting
+- If you encounter issues with `xvfb-run`, ensure `xauth` is installed.
+- Check the logs for any errors during startup.

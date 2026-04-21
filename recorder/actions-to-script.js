@@ -1,3 +1,5 @@
+const fs = require('fs'); // Import 'fs' module at the top level
+
 'use strict';
 
 /**
@@ -21,9 +23,17 @@ function actionsToScript(actions, options = {}) {
     a.type === 'goto' && /displayDeclarationsList\.htm/.test(a.url || '')
   );
 
+  const timestamps = [];
+
   const actionLines = cleaned
-    .map((a, i) => actionToCode(a, params, i, hasDynamicPeriod))
+    .map((a, i) => {
+      const timestamp = new Date().toISOString();
+      timestamps.push({ step: i + 1, action: a.type, timestamp });
+      return actionToCode(a, params, i, hasDynamicPeriod);
+    })
     .filter(Boolean);
+
+  fs.writeFileSync('action-timestamps.json', JSON.stringify(timestamps, null, 2));
 
   // ensure tax-period params exist (safe to add even if unused)
   const extraParams = [
@@ -39,7 +49,31 @@ function actionsToScript(actions, options = {}) {
   return `'use strict';
 const { chromium } = require('playwright');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs'); // Import 'fs' module at the top level
+
+  async function logClipboardContent(page) {
+    try {
+      // Simulate copying content to the clipboard
+      await page.evaluate(() => {
+        const textToCopy = 'Simulated clipboard content';
+        navigator.clipboard.writeText(textToCopy);
+      });
+
+      // Read the clipboard content
+      const clipboardText = await page.evaluate(() => {
+        return navigator.clipboard ? navigator.clipboard.readText() : 'Clipboard API not supported';
+      });
+
+      console.log('[clipboard]: ' + clipboardText);
+      return clipboardText;
+    } catch (error) {
+      console.error('Error reading clipboard:', error);
+      return null;
+    }
+  }
+
+  // Export the function for use in other modules
+  module.exports = { logClipboardContent };
 
 /**
  * Script : ${name}
@@ -52,6 +86,8 @@ ${paramDestructure}
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
+
+  logClipboardContent(page);
 
   try {
     ${actionLines.join('\n    ')}

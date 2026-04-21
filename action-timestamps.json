@@ -1,0 +1,57 @@
+[
+  {
+    "step": 1,
+    "action": "goto",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 2,
+    "action": "click",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 3,
+    "action": "goto",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 4,
+    "action": "goto",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 5,
+    "action": "fill",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 6,
+    "action": "fill",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 7,
+    "action": "click",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 8,
+    "action": "goto",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 9,
+    "action": "goto",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 10,
+    "action": "click",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  },
+  {
+    "step": 11,
+    "action": "goto",
+    "timestamp": "2026-04-21T11:02:29.863Z"
+  }
+]

@@ -572,13 +572,35 @@ async function cleanupBrowser() {
 // ---------------------------------------------------------------------------
 
 const PORT = process.env.PORT || 3000;
+const LOG_FILE = path.join(__dirname, 'logs', 'server.log');
+
+// Ensure logs directory exists
+const LOGS_DIR = path.join(__dirname, 'logs');
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+
+function logMessage(message) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] ${message}\n`;
+  fs.appendFileSync(LOG_FILE, logEntry);
+  console.log(message);
+}
+
+// Log unhandled exceptions
+process.on('uncaughtException', (err) => {
+  logMessage(`Unhandled Exception: ${err.message}\n${err.stack}`);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logMessage(`Unhandled Rejection: ${reason}`);
+});
+
+// Log server startup
 server.listen(PORT, () => {
-  console.log(`\n  🎭 Playwright Trainer running at http://localhost:${PORT}\n`);
-  if (process.env.DISPLAY) {
-    console.log(`  🖥️  Browser display: ${process.env.DISPLAY}`);
-    console.log(`  🔍 Browser view (noVNC): http://localhost:6080\n`);
-  } else {
-    console.log('  ℹ️  No DISPLAY found — browser will run headless.\n');
-    console.log('  To enable headed mode in Codespaces the startup.sh will configure Xvfb.\n');
-  }
+  logMessage('Playwright Trainer server started on port 3000');
+});
+
+// Log errors during API requests
+app.use((err, req, res, next) => {
+  logMessage(`API Error: ${err.message}`);
+  res.status(500).json({ error: 'Internal Server Error' });
 });
